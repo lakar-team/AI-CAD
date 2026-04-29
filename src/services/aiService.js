@@ -56,6 +56,13 @@ AVAILABLE TOOLS:
 SCALE REFERENCE:
 - A human is 1.8m tall. A dining table is ~0.75m high. A door is ~2m tall, ~0.9m wide.
 
+--- 3D POSITIONING MATH (CRITICAL) ---
+The position [x, y, z] defines the CENTER of the object.
+If you place a box of height 3 on the ground, its Y position should be 1.5 (half its height).
+If you want to stack Object B (height 2) on top of Object A (height 3, Y=1.5):
+Object B's Y position = Object A's Y + (Object A height / 2) + (Object B height / 2) = 1.5 + 1.5 + 1.0 = 4.0.
+Failure to calculate centers will result in objects floating or intersecting!
+
 --- MULTI-PART ASSEMBLIES ---
 If the user asks for something complex (e.g., "a house", "a table with chairs"), you SHOULD output an ARRAY of tool calls in a single response to build the entire assembly.
 

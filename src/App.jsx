@@ -399,7 +399,7 @@ export default function App() {
       </div>
 
       {/* ---- 3D Canvas ---- */}
-      <div className="main-canvas-area" onClick={() => setSelectedId(null)}>
+      <div className="main-canvas-area">
         <div className="top-toolbar glass">
           <div className="toolbar-group">
             <button className="btn btn-icon" title="Save Project (.json)" onClick={saveProject}>
@@ -426,7 +426,7 @@ export default function App() {
           </div>
         </div>
 
-        <Canvas shadows dpr={[1, 2]}>
+        <Canvas shadows dpr={[1, 2]} onPointerMissed={() => setSelectedId(null)}>
           <color attach="background" args={['#f3f4f6']} />
           <PerspectiveCamera makeDefault position={[6, 5, 6]} fov={45} />
           <ambientLight intensity={1.2} />
