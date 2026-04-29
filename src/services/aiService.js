@@ -1,5 +1,6 @@
 /**
  * AI Service to handle multiple providers (OpenAI, Anthropic, Gemini, Local)
+ * Updated with MCP-style Geometry Tools for accurate shape generation.
  */
 
 export const PROVIDERS = {
@@ -11,25 +12,26 @@ export const PROVIDERS = {
 };
 
 const SYSTEM_PROMPT = `
-You are an AI CAD assistant. Your job is to translate natural language into 3D CAD actions.
+You are an AI CAD assistant. Your job is to translate natural language into 3D CAD tool calls.
 You must ONLY output valid JSON. No other text.
 
-The JSON schema is:
+GEOMETRY TOOL LIBRARY:
+
+1. create_box(size: [w, h, d], color: hex, position: [x, y, z])
+2. create_sphere(radius: float, color: hex, position: [x, y, z])
+3. create_gear(teeth: int, module: float, thickness: float, color: hex, position: [x, y, z])
+   - Default: teeth=12, module=0.2, thickness=0.1
+4. create_slotted_plate(length, width, thickness, slotWidth, slotLength, color, position)
+   - Default: length=2, width=1, thickness=0.1
+
+RESPONSE FORMAT:
 {
-  "type": "box" | "sphere" | "cylinder",
-  "color": "hex_color",
-  "size": [width, height, depth], // For cylinder: [topRadius, bottomRadius, height, radialSegments]
-  "position": [x, y, z]
+  "tool": "tool_name",
+  "params": { ... }
 }
 
-Defaults:
-- Box size: [1, 1, 1]
-- Sphere size: [0.5, 32, 32]
-- Cylinder size: [0.5, 0.5, 1, 32]
-- Position: [0, height/2, 0] to rest on the grid.
-
-Example user: "Add a red cube"
-Example output: {"type": "box", "color": "#ef4444", "size": [1,1,1], "position": [0, 0.5, 0]}
+Example user: "Add a 20 tooth gear"
+Example output: {"tool": "create_gear", "params": {"teeth": 20, "module": 0.2, "thickness": 0.1, "color": "#f8f9fa", "position": [0, 0.1, 0]}}
 `;
 
 export async function callAI(provider, config, userPrompt) {
@@ -66,6 +68,7 @@ async function callOpenAICompatible(url, key, model, prompt) {
   });
 
   const data = await response.json();
+  if (data.error) throw new Error(data.error.message);
   return JSON.parse(data.choices[0].message.content);
 }
 
@@ -85,14 +88,13 @@ async function callOllama(url, model, prompt) {
 }
 
 async function callAnthropic(key, model, prompt) {
-  // Note: Anthropic usually requires a proxy for CORS, but here's the logic
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': key,
       'anthropic-version': '2023-06-01',
-      'dangerouslyAllowBrowser': 'true' // Some providers allow this for local dev
+      'dangerouslyAllowBrowser': 'true'
     },
     body: JSON.stringify({
       model: model || 'claude-3-5-sonnet-20240620',
@@ -103,5 +105,6 @@ async function callAnthropic(key, model, prompt) {
   });
 
   const data = await response.json();
+  if (data.error) throw new Error(data.error.message);
   return JSON.parse(data.content[0].text);
 }
