@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 
 import { PROVIDERS, PROVIDER_LABELS, DEFAULT_MODELS, callAI } from './services/aiService';
-import { getGeometryFromTool, serializeForSave, deserializeFromSave } from './services/geometryEngine';
+import { getGeometryFromTool, serializeForSave, deserializeFromSave, getAnchorPoints } from './services/geometryEngine';
 import './index.css';
 
 // Scale Helper: A 1.8m "Human" reference
@@ -58,6 +58,8 @@ const SceneObject = ({ obj, isGhost = false, onSelect, isSelected, setSelectedMe
     baseRotation[2] + userRotation[2]
   ];
 
+  const anchors = useMemo(() => isSelected ? getAnchorPoints(obj) : [], [isSelected, obj]);
+
   return (
     <group
       ref={meshRef}
@@ -69,6 +71,14 @@ const SceneObject = ({ obj, isGhost = false, onSelect, isSelected, setSelectedMe
         if (onSelect) onSelect(obj.id);
       }}
     >
+      {/* Anchor Points Visualization */}
+      {isSelected && anchors.map((a, i) => (
+        <mesh key={i} position={a.pos}>
+          <sphereGeometry args={[0.03, 8, 8]} />
+          <meshBasicMaterial color="#ef4444" transparent opacity={0.8} />
+        </mesh>
+      ))}
+
       {obj.type === 'external_model' ? (
         <>
           <Gltf src={obj.url} castShadow receiveShadow />
@@ -267,7 +277,11 @@ export default function App() {
     ).join('\n');
     if (selectedId) {
       const sel = sceneObjects.find(o => o.id === selectedId);
-      if (sel) ctx += `\n\n** USER HAS SELECTED: "${sel.label || sel.type}" (ID: ${selectedId}). Focus actions on this object. **`;
+      if (sel) {
+        ctx += `\n\n** USER HAS SELECTED: "${sel.label || sel.type}" (ID: ${selectedId}) **`;
+        const anchors = getAnchorPoints(sel);
+        ctx += `\nAnchors (Local Space): ${anchors.map(a => `${a.name}:[${a.pos.map(p => p.toFixed(3)).join(',')}]`).join(', ')}`;
+      }
     }
     return ctx;
   }, [sceneObjects, selectedId]);

@@ -60,12 +60,15 @@ AVAILABLE TOOLS:
 SCALE REFERENCE:
 - A human is 1.8m tall. A dining table is ~0.75m high. A door is ~2m tall, ~0.9m wide.
 
---- 3D POSITIONING MATH (CRITICAL) ---
+--- 3D POSITIONING MATH & ANCHOR POINTS (CRITICAL) ---
 The position [x, y, z] defines the CENTER of the object.
-If you place a box of height 3 on the ground, its Y position should be 1.5 (half its height).
-If you want to stack Object B (height 2) on top of Object A (height 3, Y=1.5):
-Object B's Y position = Object A's Y + (Object A height / 2) + (Object B height / 2) = 1.5 + 1.5 + 1.0 = 4.0.
-Failure to calculate centers will result in objects floating or intersecting!
+Objects have "Anchor Points" (corners, face centers). When an object is selected, you receive its Anchor names and their LOCAL coordinates.
+PRECISE ATTACHMENT: To attach Object B to Object A's anchor (e.g., "Top-Right-Back"), calculate:
+Object B position = Object A World Position + Anchor Local Position + (Object B offset relative to its own center).
+
+Example: To put a 0.2m sphere on top of a 2m high box (Y=1.0) using the "Center-Top" anchor [0, 1, 0]:
+Sphere Y = Box Y (1.0) + Anchor Y (1.0) + Sphere Radius (0.1) = 2.1.
+Always prefer using provided Anchor coordinates for pixel-perfect CAD assemblies.
 
 --- MULTI-PART ASSEMBLIES ---
 If the user asks for something complex (e.g., "a house", "a table with chairs"), you SHOULD output MULTIPLE tool calls in the "tools" array to build the entire assembly.

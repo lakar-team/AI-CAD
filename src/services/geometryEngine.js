@@ -308,3 +308,58 @@ export function deserializeFromSave(savedData) {
     return obj;
   });
 }
+
+/**
+ * Calculates named geometric points (anchors) for an object.
+ * Returns an array of { name, pos: [x,y,z] } in LOCAL space.
+ */
+export function getAnchorPoints(obj) {
+  const anchors = [{ name: 'Center', pos: [0, 0, 0] }];
+
+  if (obj.type === 'box') {
+    const [w, h, d] = obj.size;
+    const hw = w / 2, hh = h / 2, hd = d / 2;
+    // Corners
+    anchors.push({ name: 'Bottom-Left-Back', pos: [-hw, -hh, -hd] });
+    anchors.push({ name: 'Bottom-Right-Back', pos: [hw, -hh, -hd] });
+    anchors.push({ name: 'Bottom-Left-Front', pos: [-hw, -hh, hd] });
+    anchors.push({ name: 'Bottom-Right-Front', pos: [hw, -hh, hd] });
+    anchors.push({ name: 'Top-Left-Back', pos: [-hw, hh, -hd] });
+    anchors.push({ name: 'Top-Right-Back', pos: [hw, hh, -hd] });
+    anchors.push({ name: 'Top-Left-Front', pos: [-hw, hh, hd] });
+    anchors.push({ name: 'Top-Right-Front', pos: [hw, hh, hd] });
+    // Face Centers
+    anchors.push({ name: 'Center-Top', pos: [0, hh, 0] });
+    anchors.push({ name: 'Center-Bottom', pos: [0, -hh, 0] });
+    anchors.push({ name: 'Center-Front', pos: [0, 0, hd] });
+    anchors.push({ name: 'Center-Back', pos: [0, 0, -hd] });
+    anchors.push({ name: 'Center-Left', pos: [-hw, 0, 0] });
+    anchors.push({ name: 'Center-Right', pos: [hw, 0, 0] });
+  } 
+  else if (obj.type === 'cylinder' || obj.type === 'cone') {
+    const [rTop, rBot, h] = obj.size;
+    const hh = h / 2;
+    anchors.push({ name: 'Center-Top', pos: [0, hh, 0] });
+    anchors.push({ name: 'Center-Bottom', pos: [0, -hh, 0] });
+    // Quad points on rims
+    anchors.push({ name: 'Rim-Top-North', pos: [0, hh, rTop] });
+    anchors.push({ name: 'Rim-Top-South', pos: [0, hh, -rTop] });
+    anchors.push({ name: 'Rim-Top-East', pos: [rTop, hh, 0] });
+    anchors.push({ name: 'Rim-Top-West', pos: [-rTop, hh, 0] });
+    anchors.push({ name: 'Rim-Bottom-North', pos: [0, -hh, rBot] });
+    anchors.push({ name: 'Rim-Bottom-South', pos: [0, -hh, -rBot] });
+    anchors.push({ name: 'Rim-Bottom-East', pos: [rBot, -hh, 0] });
+    anchors.push({ name: 'Rim-Bottom-West', pos: [-rBot, -hh, 0] });
+  }
+  else if (obj.type === 'sphere') {
+    const r = obj.size;
+    anchors.push({ name: 'Top', pos: [0, r, 0] });
+    anchors.push({ name: 'Bottom', pos: [0, -r, 0] });
+    anchors.push({ name: 'Front', pos: [0, 0, r] });
+    anchors.push({ name: 'Back', pos: [0, 0, -r] });
+    anchors.push({ name: 'Left', pos: [-r, 0, 0] });
+    anchors.push({ name: 'Right', pos: [r, 0, 0] });
+  }
+
+  return anchors;
+}
