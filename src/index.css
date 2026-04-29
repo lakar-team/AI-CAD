@@ -323,6 +323,63 @@ body, html {
   outline: none;
 }
 
+/* Setup Guide */
+.setup-guide {
+  background: rgba(59, 130, 246, 0.05);
+  border: 1px solid rgba(59, 130, 246, 0.15);
+  border-radius: 10px;
+  padding: 14px 16px;
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+.guide-title {
+  font-weight: 700;
+  font-size: 0.88rem;
+  margin-bottom: 8px;
+  color: var(--color-text-primary);
+}
+
+.guide-steps {
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--color-text-secondary);
+}
+
+.guide-steps li {
+  line-height: 1.5;
+}
+
+.guide-steps code {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-family: 'Courier New', monospace;
+  color: var(--color-text-primary);
+}
+
+.guide-steps a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.guide-steps a:hover {
+  text-decoration: underline;
+}
+
+.guide-note {
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: rgba(234, 179, 8, 0.08);
+  border: 1px solid rgba(234, 179, 8, 0.2);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  color: #92400e;
+}
+
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }

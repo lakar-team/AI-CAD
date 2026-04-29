@@ -432,7 +432,7 @@ export default function App() {
       {/* ---- Settings Modal ---- */}
       {isSettingsOpen && (
         <div className="modal-overlay" onClick={() => setIsSettingsOpen(false)}>
-          <div className="modal-content glass" onClick={(e) => e.stopPropagation()} style={{ maxHeight: '80vh', overflowY: 'auto' }}>
+          <div className="modal-content glass" onClick={(e) => e.stopPropagation()} style={{ maxHeight: '85vh', overflowY: 'auto', width: '520px' }}>
             <div className="modal-header">
               <h2>AI Profiles</h2>
               <button className="btn btn-icon" onClick={() => setIsSettingsOpen(false)}><X size={18} /></button>
@@ -466,6 +466,59 @@ export default function App() {
                       <option key={key} value={key}>{label}</option>
                     ))}
                   </select>
+                </div>
+
+                {/* ---- Per-Provider Setup Guide ---- */}
+                <div className="setup-guide">
+                  {p.provider === PROVIDERS.OLLAMA && (
+                    <>
+                      <div className="guide-title">📖 Ollama Setup Guide</div>
+                      <ol className="guide-steps">
+                        <li><strong>Install Ollama:</strong> Download from <a href="https://ollama.com" target="_blank" rel="noreferrer">ollama.com</a> and run the installer.</li>
+                        <li><strong>Download a model:</strong> Open a terminal and run: <code>ollama pull llama3</code></li>
+                        <li><strong>Verify it's running:</strong> Visit <a href="http://localhost:11434" target="_blank" rel="noreferrer">localhost:11434</a> — you should see "Ollama is running".</li>
+                        <li><strong>Enable CORS:</strong> Set the environment variable <code>OLLAMA_ORIGINS=*</code> and restart Ollama. <em>(Required for browser access.)</em></li>
+                        <li><strong>Base URL:</strong> Keep as <code>http://localhost:11434</code></li>
+                        <li><strong>Model:</strong> Enter the model name you pulled (e.g. <code>llama3</code>, <code>mistral</code>, <code>qwen2</code>).</li>
+                      </ol>
+                      <div className="guide-note">💡 Recommended models: <strong>llama3</strong> (8B, good balance), <strong>qwen2</strong> (7B, great for JSON), <strong>codellama</strong> (for code-heavy tasks).</div>
+                    </>
+                  )}
+                  {p.provider === PROVIDERS.LMSTUDIO && (
+                    <>
+                      <div className="guide-title">📖 LM Studio Setup Guide</div>
+                      <ol className="guide-steps">
+                        <li><strong>Install LM Studio:</strong> Download from <a href="https://lmstudio.ai" target="_blank" rel="noreferrer">lmstudio.ai</a>.</li>
+                        <li><strong>Download a model:</strong> Use the built-in search to download a model (e.g. Llama 3, Mistral).</li>
+                        <li><strong>Start the server:</strong> Go to the "Local Server" tab and click "Start Server".</li>
+                        <li><strong>Base URL:</strong> Keep as <code>http://localhost:1234/v1</code></li>
+                        <li><strong>Model:</strong> Enter the model identifier shown in LM Studio's server tab.</li>
+                      </ol>
+                    </>
+                  )}
+                  {p.provider === PROVIDERS.OPENAI && (
+                    <>
+                      <div className="guide-title">📖 OpenAI Setup Guide</div>
+                      <ol className="guide-steps">
+                        <li><strong>Get an API Key:</strong> Go to <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer">platform.openai.com/api-keys</a> and create a new secret key.</li>
+                        <li><strong>Add billing:</strong> You need a paid account with credits. The free tier has very low limits.</li>
+                        <li><strong>Paste the key below.</strong> It starts with <code>sk-...</code></li>
+                        <li><strong>Model:</strong> Use <code>gpt-4o</code> for best results, or <code>gpt-4o-mini</code> to save money on simple tasks.</li>
+                      </ol>
+                      <div className="guide-note">⚠️ OpenAI charges per request. GPT-4o costs ~$5/1M input tokens. Use a local model for free unlimited use.</div>
+                    </>
+                  )}
+                  {p.provider === PROVIDERS.ANTHROPIC && (
+                    <>
+                      <div className="guide-title">📖 Anthropic Setup Guide</div>
+                      <ol className="guide-steps">
+                        <li><strong>Get an API Key:</strong> Go to <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">console.anthropic.com</a> and create a key.</li>
+                        <li><strong>Paste the key below.</strong> It starts with <code>sk-ant-...</code></li>
+                        <li><strong>Model:</strong> Use <code>claude-sonnet-4-20250514</code> for best results.</li>
+                      </ol>
+                      <div className="guide-note">⚠️ Direct browser calls to Anthropic may be blocked by CORS. If you get errors, use OpenAI or a local model instead.</div>
+                    </>
+                  )}
                 </div>
 
                 {(p.provider === PROVIDERS.OPENAI || p.provider === PROVIDERS.ANTHROPIC) && (
@@ -504,6 +557,27 @@ export default function App() {
                     onChange={(e) => updateProfile(idx, 'model', e.target.value)}
                   />
                 </div>
+
+                {/* Test Connection Button */}
+                <button
+                  className="btn btn-icon"
+                  style={{ width: '100%', justifyContent: 'center', gap: '8px', fontSize: '0.85rem' }}
+                  onClick={async () => {
+                    setChatHistory(prev => [...prev, { id: Date.now(), role: 'ai', text: `🔄 Testing connection to ${PROVIDER_LABELS[p.provider]}...` }]);
+                    try {
+                      const result = await callAI(p.provider, p, 'Respond with: {"tool":"create_box","params":{"size":[0.5,0.5,0.5],"color":"#22c55e","position":[0,0.25,0]}}', 'Empty scene.');
+                      if (result && result.tool) {
+                        setChatHistory(prev => [...prev, { id: Date.now(), role: 'ai', text: `✅ Connection successful! ${PROVIDER_LABELS[p.provider]} is working.` }]);
+                      } else {
+                        setChatHistory(prev => [...prev, { id: Date.now(), role: 'ai', text: `⚠️ Connected but got unexpected response. Check model name.` }]);
+                      }
+                    } catch (err) {
+                      setChatHistory(prev => [...prev, { id: Date.now(), role: 'ai', text: `❌ Test failed: ${err.message}` }]);
+                    }
+                  }}
+                >
+                  ⚡ Test Connection
+                </button>
               </div>
             ))}
 
