@@ -11,15 +11,14 @@ import './index.css';
 const SceneObject = ({ obj, isGhost = false }) => {
   const meshRef = useRef();
 
-  // If it's a custom shape (Gear, Slotted Plate), we extrude it
   const extrudeSettings = useMemo(() => ({
     steps: 1,
     depth: obj.thickness || 0.1,
-    bevelEnabled: true,
+    bevelEnabled: !obj.operation, // No bevel for holes to keep them crisp
     bevelThickness: 0.02,
     bevelSize: 0.02,
     bevelSegments: 3
-  }), [obj.thickness]);
+  }), [obj.thickness, obj.operation]);
 
   return (
     <group position={obj.position}>
@@ -29,12 +28,13 @@ const SceneObject = ({ obj, isGhost = false }) => {
         {obj.type === 'custom' && <extrudeGeometry args={[obj.shape, extrudeSettings]} />}
         
         <meshStandardMaterial 
-          color={obj.color} 
-          transparent={isGhost}
-          opacity={isGhost ? 0.5 : 1}
+          color={obj.operation === 'subtract' ? '#050505' : obj.color} 
+          transparent={isGhost || obj.operation === 'subtract'}
+          opacity={isGhost ? 0.5 : (obj.operation === 'subtract' ? 0.9 : 1)}
           wireframe={isGhost}
           roughness={0.2}
           metalness={0.1}
+          emissive={obj.operation === 'subtract' ? '#000000' : '#000000'}
         />
       </mesh>
     </group>
@@ -45,7 +45,7 @@ export default function App() {
   const [sceneObjects, setSceneObjects] = useState([]);
   const [ghostObject, setGhostObject] = useState(null);
   const [chatHistory, setChatHistory] = useState([
-    { id: 1, role: 'ai', text: "Hello! I'm your AI CAD Assistant. I now support Geometry Tools for accurate shape generation. Try asking for a '20 tooth gear'!" }
+    { id: 1, role: 'ai', text: "Ready for Core Six CAD. I can now 'see' your scene. Try creating a plate, then ask me to put a hole in it!" }
   ]);
   const [inputValue, setInputValue] = useState('');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -65,6 +65,14 @@ export default function App() {
     localStorage.setItem('ai_config', JSON.stringify(aiConfig));
   }, [aiConfig]);
 
+  // --- CONTEXT FEEDBACK LOOP: Serialize Scene for AI ---
+  const getSceneContext = () => {
+    if (sceneObjects.length === 0) return "The scene is currently empty.";
+    return sceneObjects.map(obj => (
+      `- ID: ${obj.id}, Type: ${obj.type}, Label: ${obj.label}, Pos: [${obj.position.join(',')}], Dims: ${JSON.stringify(obj.size || obj.thickness)}`
+    )).join('\n');
+  };
+
   const handleSend = async () => {
     if (!inputValue.trim()) return;
 
@@ -80,20 +88,20 @@ export default function App() {
     setIsLoading(true);
 
     try {
-      // 1. Call AI to get Tool Call
-      const toolCall = await callAI(aiConfig.provider, aiConfig, inputValue);
+      // Pass the serialized scene context to the AI
+      const sceneContext = getSceneContext();
+      const toolCall = await callAI(aiConfig.provider, aiConfig, inputValue, sceneContext);
       
-      // 2. Use Geometry Engine to process Tool Call
-      const suggestion = getGeometryFromTool(toolCall);
+      const suggestion = getGeometryFromTool(toolCall, sceneObjects);
       if (!suggestion) throw new Error("AI returned an invalid tool call.");
       
-      const suggestionWithId = { ...suggestion, id: uuidv4() };
+      const suggestionWithId = { ...suggestion, id: `obj_${uuidv4().slice(0,8)}` };
       
       setGhostObject(suggestionWithId);
       setChatHistory(prev => [...prev, {
         id: Date.now() + 1,
         role: 'ai',
-        text: `I've used the '${toolCall.tool}' tool to generate your request. How does the preview look?`,
+        text: `Command interpreted: ${toolCall.tool}. Look at the preview.`,
         suggestion: suggestionWithId
       }]);
     } catch (error) {
@@ -109,17 +117,21 @@ export default function App() {
   };
 
   const handleAccept = (suggestion) => {
-    setSceneObjects(prev => [...prev, suggestion]);
+    if (suggestion.type === 'pattern_group') {
+      setSceneObjects(prev => [...prev, ...suggestion.clones]);
+    } else {
+      setSceneObjects(prev => [...prev, suggestion]);
+    }
     setGhostObject(null);
     setChatHistory(prev => [...prev, {
-      id: Date.now(), role: 'ai', text: 'Added to scene!'
+      id: Date.now(), role: 'ai', text: 'Action confirmed. What is next?'
     }]);
   };
 
   const handleReject = () => {
     setGhostObject(null);
     setChatHistory(prev => [...prev, {
-      id: Date.now(), role: 'ai', text: 'Discarded.'
+      id: Date.now(), role: 'ai', text: 'Action discarded.'
     }]);
   };
 
@@ -148,11 +160,11 @@ export default function App() {
               )}
             </div>
           ))}
-          {isLoading && <div className="chat-message ai"><div className="message-bubble">Calculating Geometry...</div></div>}
+          {isLoading && <div className="chat-message ai"><div className="message-bubble">Analyzing Context...</div></div>}
         </div>
 
         <div className="chat-input-area">
-          <input type="text" className="input-field" placeholder="e.g. Add a 20-tooth gear" value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSend()} disabled={isLoading} />
+          <input type="text" className="input-field" placeholder="e.g. Put a hole in the plate" value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSend()} disabled={isLoading} />
           <button className="btn btn-primary" onClick={handleSend} disabled={isLoading}><Send size={18} /></button>
         </div>
       </div>
@@ -168,8 +180,14 @@ export default function App() {
           <directionalLight position={[10, 10, 5]} intensity={1} castShadow />
           <Environment preset="city" />
           <Grid infiniteGrid fadeDistance={30} sectionColor="#202024" cellColor="#141416" position={[0, 0, 0]} />
+          
           {sceneObjects.map(obj => <SceneObject key={obj.id} obj={obj} />)}
-          {ghostObject && <SceneObject obj={ghostObject} isGhost={true} />}
+          {ghostObject && (
+            ghostObject.type === 'pattern_group' 
+              ? ghostObject.clones.map(c => <SceneObject key={c.id} obj={c} isGhost={true} />)
+              : <SceneObject obj={ghostObject} isGhost={true} />
+          )}
+
           <OrbitControls makeDefault />
           <GizmoHelper alignment="bottom-right" margin={[80, 80]}><GizmoViewport axisColors={['#ef4444', '#10b981', '#3b82f6']} labelColor="white" /></GizmoHelper>
         </Canvas>
@@ -185,13 +203,12 @@ export default function App() {
             <div className="form-group">
               <label>AI Provider</label>
               <select className="select-field" value={aiConfig.provider} onChange={(e) => setAiConfig({ ...aiConfig, provider: e.target.value })}>
-                <option value={PROVIDERS.OPENAI}>OpenAI (Cloud)</option>
-                <option value={PROVIDERS.ANTHROPIC}>Anthropic (Cloud)</option>
-                <option value={PROVIDERS.OLLAMA}>Ollama (Local)</option>
-                <option value={PROVIDERS.LMSTUDIO}>LM Studio (Local)</option>
+                <option value={PROVIDERS.OPENAI}>OpenAI</option>
+                <option value={PROVIDERS.ANTHROPIC}>Anthropic</option>
+                <option value={PROVIDERS.OLLAMA}>Ollama</option>
               </select>
             </div>
-            {(aiConfig.provider === PROVIDERS.OPENAI || aiConfig.provider === PROVIDERS.ANTHROPIC) && (
+            {(aiConfig.provider !== PROVIDERS.OLLAMA) && (
               <div className="form-group">
                 <label>API Key</label>
                 <input type="password" className="input-field" placeholder="sk-..." value={aiConfig.apiKey} onChange={(e) => setAiConfig({ ...aiConfig, apiKey: e.target.value })} />
@@ -199,7 +216,7 @@ export default function App() {
             )}
             <div className="form-group">
               <label>Model Name</label>
-              <input type="text" className="input-field" placeholder="gpt-4o, llama3, etc." value={aiConfig.model} onChange={(e) => setAiConfig({ ...aiConfig, model: e.target.value })} />
+              <input type="text" className="input-field" placeholder="gpt-4o" value={aiConfig.model} onChange={(e) => setAiConfig({ ...aiConfig, model: e.target.value })} />
             </div>
             <div className="modal-footer">
               <button className="btn btn-primary" onClick={() => setIsSettingsOpen(false)}>Save</button>
