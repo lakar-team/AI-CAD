@@ -1,16 +1,16 @@
 :root {
-  --color-bg-primary: #0a0a0c;
-  --color-bg-secondary: #141416;
-  --color-bg-tertiary: #202024;
-  --color-text-primary: #f8f9fa;
-  --color-text-secondary: #a1a1aa;
-  --color-accent: #6366f1;
-  --color-accent-hover: #4f46e5;
+  --color-bg-primary: #f8f9fa;
+  --color-bg-secondary: #ffffff;
+  --color-bg-tertiary: #e9ecef;
+  --color-text-primary: #212529;
+  --color-text-secondary: #6c757d;
+  --color-accent: #3b82f6;
+  --color-accent-hover: #2563eb;
   --color-success: #10b981;
   --color-danger: #ef4444;
   
-  --shadow-glass: 0 4px 30px rgba(0, 0, 0, 0.5);
-  --border-glass: 1px solid rgba(255, 255, 255, 0.05);
+  --shadow-glass: 0 4px 20px rgba(0, 0, 0, 0.05);
+  --border-glass: 1px solid rgba(0, 0, 0, 0.08);
   --border-radius: 12px;
   --font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
@@ -36,11 +36,11 @@ body, html {
   display: flex;
 }
 
-/* Glassmorphism utility */
+/* Glassmorphism utility - Light mode version */
 .glass {
-  background: rgba(20, 20, 22, 0.7);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border: var(--border-glass);
   box-shadow: var(--shadow-glass);
 }
@@ -88,39 +88,44 @@ body, html {
 
 .btn-icon {
   padding: 8px;
-  background: var(--color-bg-tertiary);
+  background: var(--color-bg-secondary);
   color: var(--color-text-primary);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
 .btn-icon:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--color-bg-tertiary);
   transform: translateY(-1px);
+}
+.btn-icon.active {
+  border-color: var(--color-accent);
+  background: rgba(59, 130, 246, 0.1);
 }
 
 .btn-success {
-  background-color: rgba(16, 185, 129, 0.2);
-  color: var(--color-success);
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  background-color: rgba(16, 185, 129, 0.1);
+  color: #065f46;
+  border: 1px solid rgba(16, 185, 129, 0.2);
 }
 .btn-success:hover {
-  background-color: rgba(16, 185, 129, 0.3);
+  background-color: rgba(16, 185, 129, 0.2);
 }
 
 .btn-danger {
-  background-color: rgba(239, 68, 68, 0.2);
-  color: var(--color-danger);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background-color: rgba(239, 68, 68, 0.1);
+  color: #991b1b;
+  border: 1px solid rgba(239, 68, 68, 0.2);
 }
 .btn-danger:hover {
-  background-color: rgba(239, 68, 68, 0.3);
+  background-color: rgba(239, 68, 68, 0.2);
 }
 
 /* Input */
 .input-field {
   width: 100%;
   padding: 12px 16px;
-  background: var(--color-bg-tertiary);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--color-bg-secondary);
+  border: 1px solid rgba(0, 0, 0, 0.1);
   border-radius: var(--border-radius);
   color: var(--color-text-primary);
   font-family: var(--font-family);
@@ -157,12 +162,10 @@ body, html {
   gap: 12px;
 }
 .sidebar-header h1 {
-  font-size: 1.2rem;
-  font-weight: 600;
+  font-size: 1.1rem;
+  font-weight: 700;
   letter-spacing: -0.5px;
-  background: linear-gradient(135deg, #f8f9fa, #a1a1aa);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: var(--color-text-primary);
 }
 
 .chat-container {
@@ -183,11 +186,13 @@ body, html {
 
 .chat-message.user .message-bubble {
   background: var(--color-accent);
+  color: white;
   align-self: flex-end;
   border-bottom-right-radius: 4px;
 }
 .chat-message.ai .message-bubble {
   background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
   align-self: flex-start;
   border-bottom-left-radius: 4px;
 }
@@ -203,9 +208,9 @@ body, html {
 .ai-suggestion-card {
   margin-top: 8px;
   padding: 12px;
-  background: rgba(255,255,255,0.05);
+  background: rgba(0,0,0,0.03);
   border-radius: 8px;
-  border: 1px solid rgba(255,255,255,0.1);
+  border: 1px solid rgba(0,0,0,0.05);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -216,16 +221,24 @@ body, html {
   gap: 8px;
 }
 
-.chat-input-area {
+.chat-footer {
   padding: 20px;
   border-top: var(--border-glass);
   display: flex;
-  gap: 12px;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--color-bg-secondary);
+}
+
+.chat-input-area {
+  display: flex;
+  gap: 10px;
 }
 
 .main-canvas-area {
   flex: 1;
   position: relative;
+  background-color: #f3f4f6; /* SketchUp style background */
 }
 
 .top-toolbar {
@@ -245,43 +258,32 @@ body, html {
   gap: 8px;
   align-items: center;
   padding: 0 12px;
-  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  border-right: 1px solid rgba(0, 0, 0, 0.1);
 }
 
 .toolbar-group:last-child {
   border-right: none;
 }
 
-.chat-footer {
-  padding: 10px 20px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  background: rgba(0,0,0,0.2);
-}
-
 .profile-select {
-  background: transparent;
-  border: 1px solid rgba(255,255,255,0.1);
+  background: var(--color-bg-tertiary);
+  border: 1px solid rgba(0,0,0,0.05);
   color: var(--color-text-secondary);
   font-size: 0.8rem;
-  padding: 4px 8px;
-  border-radius: 4px;
+  padding: 4px 10px;
+  border-radius: 100px;
   outline: none;
   cursor: pointer;
 }
 
-.profile-select:hover {
-  border-color: var(--color-accent);
-}
-
+/* Modal styles */
 .modal-overlay {
   position: fixed;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -299,12 +301,6 @@ body, html {
   gap: 20px;
 }
 
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
 .form-group {
   display: flex;
   flex-direction: column;
@@ -314,24 +310,17 @@ body, html {
 .form-group label {
   font-size: 0.85rem;
   color: var(--color-text-secondary);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .select-field {
   width: 100%;
   padding: 12px;
   background: var(--color-bg-tertiary);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(0,0,0,0.05);
   border-radius: var(--border-radius);
   color: var(--color-text-primary);
   outline: none;
-  cursor: pointer;
-}
-
-.modal-footer {
-  margin-top: 10px;
-  display: flex;
-  justify-content: flex-end;
 }
 
 @keyframes fadeIn {

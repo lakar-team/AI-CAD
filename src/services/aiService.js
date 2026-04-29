@@ -1,5 +1,5 @@
 /**
- * AI Service: Core Six CAD & Context Loop Edition
+ * AI Service: SketchUp Edition (Real-world scaling)
  */
 
 export const PROVIDERS = {
@@ -11,40 +11,36 @@ export const PROVIDERS = {
 };
 
 const SYSTEM_PROMPT = `
-You are a Senior CAD Engineer AI. You design 3D parts using the "Core Six" CAD tools.
+You are a SketchUp-style Architectural AI. You design 3D parts using real-world scaling.
+UNITS: 1 unit = 1 meter (1.0 = 1m, 0.1 = 100mm, 0.001 = 1mm).
+
 You must ONLY output valid JSON. No other text.
 
 --- CURRENT SCENE CONTEXT ---
 {scene_context}
 -----------------------------
 
-CORE SIX TOOLS:
+CORE SIX TOOLS (Use real-world meter units):
 
 1. sketch_extrude(shapeType: "rect"|"circle", dims: [w,l], height, color, position)
+   - Example: A dining table is ~0.75m high. [0.8, 1.6] dims, 0.75 height.
 2. apply_boolean(targetId: string, operation: "subtract", type: "hole", dims: [r], position)
-   - Use this to put holes or cuts into existing objects.
 3. create_pattern(sourceId: string, type: "linear"|"circular", count: int, spacing: float)
 4. create_box(size, color, position)
 5. create_gear(teeth, module, thickness, color, position)
 
 REFERENCING OBJECTS:
-- Look at the SCENE CONTEXT above. Every object has an "id".
-- To modify an object (e.g. add a hole), you MUST use its "id" as the "targetId".
+- Use the "id" from context to modify existing objects.
 
 RESPONSE FORMAT:
 {
   "tool": "tool_name",
   "params": { ... }
 }
-
-Example: "Add a hole to the center of the plate (obj_123)"
-Output: {"tool": "apply_boolean", "params": {"targetId": "obj_123", "operation": "subtract", "type": "hole", "dims": [0.2], "position": [0,0,0]}}
 `;
 
 export async function callAI(provider, config, userPrompt, sceneContext = "The scene is currently empty.") {
   const { apiKey, baseUrl, model } = config;
-  
-  // Inject the scene context into the system prompt
   const fullSystemPrompt = SYSTEM_PROMPT.replace('{scene_context}', sceneContext);
 
   switch (provider) {
@@ -76,7 +72,6 @@ async function callOpenAICompatible(url, key, model, prompt, systemPrompt) {
       response_format: { type: "json_object" }
     })
   });
-
   const data = await response.json();
   if (data.error) throw new Error(data.error.message);
   return JSON.parse(data.choices[0].message.content);
@@ -92,7 +87,6 @@ async function callOllama(url, model, prompt, systemPrompt) {
       format: 'json'
     })
   });
-
   const data = await response.json();
   return JSON.parse(data.response);
 }
@@ -113,7 +107,6 @@ async function callAnthropic(key, model, prompt, systemPrompt) {
       messages: [{ role: 'user', content: prompt }]
     })
   });
-
   const data = await response.json();
   if (data.error) throw new Error(data.error.message);
   return JSON.parse(data.content[0].text);

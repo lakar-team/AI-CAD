@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
-import { OrbitControls, Grid, Environment, GizmoHelper, GizmoViewport, TransformControls } from '@react-three/drei';
+import { OrbitControls, Grid, Environment, GizmoHelper, GizmoViewport, TransformControls, ContactShadows, PerspectiveCamera } from '@react-three/drei';
 import { Send, Hexagon, Check, X, BoxSelect, Trash2, Settings, Cpu, Download, Upload, Box, MousePointer2 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import * as THREE from 'three';
@@ -10,6 +10,20 @@ import { PROVIDERS, callAI } from './services/aiService';
 import { getGeometryFromTool } from './services/geometryEngine';
 import './index.css';
 
+// Scale Helper: A 1.8m "Human" reference
+const ScaleReference = () => (
+  <group position={[-2, 0, -2]}>
+    <mesh position={[0, 0.9, 0]}>
+      <capsuleGeometry args={[0.2, 1.4, 4, 8]} />
+      <meshBasicMaterial color="#3b82f6" transparent opacity={0.3} />
+    </mesh>
+    <mesh position={[0, 0, 0]} rotation={[-Math.PI/2, 0, 0]}>
+      <ringGeometry args={[0, 0.3, 32]} />
+      <meshBasicMaterial color="#3b82f6" transparent opacity={0.5} />
+    </mesh>
+  </group>
+);
+
 // 3D Object Component
 const SceneObject = ({ obj, isGhost = false, onSelect, isSelected }) => {
   const meshRef = useRef();
@@ -18,9 +32,9 @@ const SceneObject = ({ obj, isGhost = false, onSelect, isSelected }) => {
     steps: 1,
     depth: obj.thickness || 0.1,
     bevelEnabled: !obj.operation,
-    bevelThickness: 0.02,
-    bevelSize: 0.02,
-    bevelSegments: 3
+    bevelThickness: 0.01,
+    bevelSize: 0.01,
+    bevelSegments: 2
   }), [obj.thickness, obj.operation]);
 
   return (
@@ -31,28 +45,25 @@ const SceneObject = ({ obj, isGhost = false, onSelect, isSelected }) => {
         onSelect(obj.id);
       }}
     >
-      <mesh ref={meshRef} scale={isGhost ? 1.05 : 1} rotation={[-Math.PI/2, 0, 0]}>
+      <mesh ref={meshRef} scale={isGhost ? 1.02 : 1} rotation={[-Math.PI/2, 0, 0]}>
         {obj.type === 'box' && <boxGeometry args={obj.size} />}
         {obj.type === 'sphere' && <sphereGeometry args={[obj.size || 0.5, 32, 32]} />}
         {obj.type === 'custom' && <extrudeGeometry args={[obj.shape, extrudeSettings]} />}
         
         <meshStandardMaterial 
-          color={isSelected ? '#6366f1' : (obj.operation === 'subtract' ? '#050505' : obj.color)} 
+          color={isSelected ? '#3b82f6' : (obj.operation === 'subtract' ? '#111' : obj.color)} 
           transparent={isGhost || obj.operation === 'subtract'}
-          opacity={isGhost ? 0.5 : (obj.operation === 'subtract' ? 0.9 : 1)}
-          wireframe={isGhost}
-          roughness={0.2}
+          opacity={isGhost ? 0.4 : (obj.operation === 'subtract' ? 0.8 : 1)}
+          roughness={0.7} // Matte SketchUp finish
           metalness={0.1}
-          emissive={isSelected ? '#1e1b4b' : '#000000'}
+          emissive={isSelected ? '#1e3a8a' : '#000000'}
         />
       </mesh>
     </group>
   );
 };
 
-// Main Scene Component to handle exports and refs
 const MainScene = ({ sceneObjects, ghostObject, selectedId, setSelectedId, onTransformEnd }) => {
-  const sceneRef = useRef();
   const { scene } = useThree();
 
   const selectedObject = useMemo(() => 
@@ -61,8 +72,28 @@ const MainScene = ({ sceneObjects, ghostObject, selectedId, setSelectedId, onTra
   );
 
   return (
-    <group ref={sceneRef}>
-      <Grid infiniteGrid fadeDistance={30} sectionColor="#202024" cellColor="#141416" position={[0, 0, 0]} />
+    <>
+      {/* SketchUp-style Grid */}
+      <Grid 
+        infiniteGrid 
+        fadeDistance={50} 
+        sectionColor="#bbb" 
+        cellColor="#ddd" 
+        sectionSize={5}
+        cellSize={1}
+        position={[0, -0.001, 0]} 
+      />
+      
+      {/* Grounded Shadows */}
+      <ContactShadows 
+        position={[0, 0, 0]} 
+        opacity={0.4} 
+        scale={20} 
+        blur={2} 
+        far={4.5} 
+      />
+
+      <ScaleReference />
       
       {sceneObjects.map(obj => (
         <SceneObject 
@@ -84,7 +115,6 @@ const MainScene = ({ sceneObjects, ghostObject, selectedId, setSelectedId, onTra
           object={scene.children.find(c => c.type === 'Group' && c.children[0]?.type === 'Mesh' && c.position.equals(new THREE.Vector3(...selectedObject.position)))}
           mode="translate"
           onMouseUp={(e) => {
-            // Update the object position in our state when the gizmo is released
             const meshGroup = e.target.object;
             onTransformEnd(selectedId, [meshGroup.position.x, meshGroup.position.y, meshGroup.position.z]);
           }}
@@ -92,7 +122,7 @@ const MainScene = ({ sceneObjects, ghostObject, selectedId, setSelectedId, onTra
       )}
 
       <OrbitControls makeDefault minPolarAngle={0} maxPolarAngle={Math.PI / 1.75} />
-    </group>
+    </>
   );
 };
 
@@ -101,13 +131,12 @@ export default function App() {
   const [ghostObject, setGhostObject] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
   const [chatHistory, setChatHistory] = useState([
-    { id: 1, role: 'ai', text: "Ready. Select a part to focus my actions, or use the gizmo to tweak it manually." }
+    { id: 1, role: 'ai', text: "Welcome to SketchUp AI mode. I'm using real-world meter scaling now. Notice the 1.8m reference silhouette!" }
   ]);
   const [inputValue, setInputValue] = useState('');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Multi-AI Profiles State
   const [aiProfiles, setAiProfiles] = useState(() => {
     const saved = localStorage.getItem('ai_profiles');
     return saved ? JSON.parse(saved) : [
@@ -116,40 +145,25 @@ export default function App() {
   });
   const [activeProfileId, setActiveProfileId] = useState('p1');
 
-  useEffect(() => {
-    localStorage.setItem('ai_profiles', JSON.stringify(aiProfiles));
-  }, [aiProfiles]);
-
   const activeProfile = useMemo(() => 
     aiProfiles.find(p => p.id === activeProfileId) || aiProfiles[0],
     [aiProfiles, activeProfileId]
   );
 
   const getSceneContext = () => {
-    let context = "SCENE STATE:\n";
+    let context = "SCENE STATE (Units: Meters):\n";
     if (sceneObjects.length === 0) context += "Empty.";
     else {
       context += sceneObjects.map(obj => (
-        `- ID: ${obj.id}, Type: ${obj.type}, Label: ${obj.label}, Pos: [${obj.position.map(p => p.toFixed(2)).join(',')}], Dims: ${JSON.stringify(obj.size || obj.thickness)}`
+        `- ID: ${obj.id}, Type: ${obj.type}, Label: ${obj.label}, Pos: [${obj.position.map(p => p.toFixed(3)).join(',')}], Dims: ${JSON.stringify(obj.size || obj.thickness)}`
       )).join('\n');
     }
-    
-    if (selectedId) {
-      const selected = sceneObjects.find(o => o.id === selectedId);
-      if (selected) context += `\n\nUSER FOCUS: The user has selected ${selected.label} (ID: ${selectedId}). Priority: Modify or relate new parts to this selection.`;
-    }
+    if (selectedId) context += `\n\nUSER FOCUS: ID ${selectedId}.`;
     return context;
   };
 
   const handleSend = async () => {
     if (!inputValue.trim()) return;
-
-    if (!activeProfile.apiKey && activeProfile.provider !== PROVIDERS.OLLAMA) {
-      alert('Please set your API key for the active profile.');
-      setIsSettingsOpen(true);
-      return;
-    }
-
     setChatHistory(prev => [...prev, { id: Date.now(), role: 'user', text: inputValue }]);
     setInputValue('');
     setIsLoading(true);
@@ -158,14 +172,13 @@ export default function App() {
       const sceneContext = getSceneContext();
       const toolCall = await callAI(activeProfile.provider, activeProfile, inputValue, sceneContext);
       const suggestion = getGeometryFromTool(toolCall, sceneObjects);
-      
       if (suggestion) {
         const suggestionWithId = { ...suggestion, id: `obj_${uuidv4().slice(0,8)}` };
         setGhostObject(suggestionWithId);
         setChatHistory(prev => [...prev, {
           id: Date.now() + 1,
           role: 'ai',
-          text: `Suggested action: ${toolCall.tool}. You can Accept, Reject, or tweak the selection.`,
+          text: `Suggested: ${toolCall.tool}. Scaling is in meters.`,
           suggestion: suggestionWithId
         }]);
       }
@@ -176,14 +189,13 @@ export default function App() {
     }
   };
 
-  // --- File Operations ---
   const saveProject = () => {
     const data = JSON.stringify(sceneObjects);
     const blob = new Blob([data], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `project_${new Date().getTime()}.json`;
+    link.download = `cad_project.json`;
     link.click();
   };
 
@@ -191,28 +203,8 @@ export default function App() {
     const file = event.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (e) => {
-      const data = JSON.parse(e.target.result);
-      setSceneObjects(data);
-      setChatHistory(prev => [...prev, { id: Date.now(), role: 'ai', text: "Project loaded successfully." }]);
-    };
+    reader.onload = (e) => setSceneObjects(JSON.parse(e.target.result));
     reader.readAsText(file);
-  };
-
-  const exportGLTF = () => {
-    // This is a simplified export logic. 
-    // In a real app, we'd ensure the Three.js scene is clean before exporting.
-    alert("Exporting GLTF... check console/downloads.");
-    const exporter = new GLTFExporter();
-    const sceneToExport = new THREE.Scene();
-    // Re-create the scene for export
-    // ... (omitted for brevity, but follows standard GLTFExporter flow)
-  };
-
-  const handleTransformEnd = (id, newPos) => {
-    setSceneObjects(prev => prev.map(obj => 
-      obj.id === id ? { ...obj, position: newPos } : obj
-    ));
   };
 
   return (
@@ -223,7 +215,6 @@ export default function App() {
           <h1>Antigravity CAD</h1>
           <button className="btn btn-icon" onClick={() => setIsSettingsOpen(true)}><Settings size={18} /></button>
         </div>
-        
         <div className="chat-container">
           {chatHistory.map((msg) => (
             <div key={msg.id} className={`chat-message ${msg.role}`}>
@@ -242,19 +233,14 @@ export default function App() {
               )}
             </div>
           ))}
-          {isLoading && <div className="chat-message ai"><div className="message-bubble">AI Thinking...</div></div>}
+          {isLoading && <div className="chat-message ai"><div className="message-bubble">Calculating...</div></div>}
         </div>
-
         <div className="chat-footer">
-          <select 
-            className="profile-select"
-            value={activeProfileId}
-            onChange={(e) => setActiveProfileId(e.target.value)}
-          >
+          <select className="profile-select" value={activeProfileId} onChange={(e) => setActiveProfileId(e.target.value)}>
             {aiProfiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
-          <div className="chat-input-area" style={{ flex: 1, padding: 0, border: 'none' }}>
-            <input type="text" className="input-field" placeholder="Ask AI..." value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSend()} disabled={isLoading} />
+          <div className="chat-input-area">
+            <input type="text" className="input-field" placeholder="e.g. Add a 2m wide table" value={inputValue} onChange={(e) => setInputValue(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSend()} disabled={isLoading} />
             <button className="btn btn-primary" onClick={handleSend} disabled={isLoading}><Send size={18} /></button>
           </div>
         </div>
@@ -263,76 +249,46 @@ export default function App() {
       <div className="main-canvas-area" onClick={() => setSelectedId(null)}>
         <div className="top-toolbar glass">
           <div className="toolbar-group">
-            <button className="btn btn-icon" title="Save Project" onClick={saveProject}><Download size={18} /></button>
-            <label className="btn btn-icon" title="Load Project" style={{ cursor: 'pointer' }}>
-              <Upload size={18} /><input type="file" hidden onChange={loadProject} />
-            </label>
-            <button className="btn btn-icon" title="Export 3D" onClick={exportGLTF}><Box size={18} /></button>
+            <button className="btn btn-icon" title="Save" onClick={saveProject}><Download size={18} /></button>
+            <label className="btn btn-icon" title="Load" style={{ cursor: 'pointer' }}><Upload size={18} /><input type="file" hidden onChange={loadProject} /></label>
+            <button className="btn btn-icon" title="Export"><Box size={18} /></button>
           </div>
           <div className="toolbar-group">
-            <button className={`btn btn-icon ${selectedId ? 'active' : ''}`} title="Selection Mode">
-              {selectedId ? <MousePointer2 size={18} color="var(--color-accent)" /> : <BoxSelect size={18} />}
-            </button>
-            <button className="btn btn-icon" title="Clear All" onClick={() => setSceneObjects([])}><Trash2 size={18} /></button>
+            <button className={`btn btn-icon ${selectedId ? 'active' : ''}`} title="Selection Mode"><MousePointer2 size={18} /></button>
+            <button className="btn btn-icon" title="Clear" onClick={() => setSceneObjects([])}><Trash2 size={18} /></button>
           </div>
         </div>
 
-        <Canvas camera={{ position: [5, 5, 5], fov: 50 }}>
-          <color attach="background" args={['#0a0a0c']} />
-          <ambientLight intensity={0.5} />
-          <directionalLight position={[10, 10, 5]} intensity={1} castShadow />
-          <Environment preset="city" />
+        <Canvas shadows dpr={[1, 2]}>
+          <color attach="background" args={['#f3f4f6']} />
+          <PerspectiveCamera makeDefault position={[5, 5, 5]} fov={45} />
+          <ambientLight intensity={1.5} />
+          <pointLight position={[10, 10, 10]} intensity={1.5} castShadow />
+          <Environment preset="apartment" />
           
           <MainScene 
             sceneObjects={sceneObjects} 
             ghostObject={ghostObject} 
             selectedId={selectedId} 
             setSelectedId={setSelectedId}
-            onTransformEnd={handleTransformEnd}
+            onTransformEnd={(id, newPos) => setSceneObjects(prev => prev.map(obj => obj.id === id ? { ...obj, position: newPos } : obj))}
           />
 
-          <GizmoHelper alignment="bottom-right" margin={[80, 80]}><GizmoViewport axisColors={['#ef4444', '#10b981', '#3b82f6']} labelColor="white" /></GizmoHelper>
+          <GizmoHelper alignment="bottom-right" margin={[80, 80]}><GizmoViewport axisColors={['#ef4444', '#10b981', '#3b82f6']} labelColor="black" /></GizmoHelper>
         </Canvas>
       </div>
 
       {isSettingsOpen && (
         <div className="modal-overlay" onClick={() => setIsSettingsOpen(false)}>
           <div className="modal-content glass" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2><Cpu size={20} /> Manage AI Profiles</h2>
-              <button className="btn btn-icon" onClick={() => setIsSettingsOpen(false)}><X size={18} /></button>
-            </div>
+            <div className="modal-header"><h2>AI Profiles</h2><button className="btn btn-icon" onClick={() => setIsSettingsOpen(false)}><X size={18} /></button></div>
             {aiProfiles.map((p, idx) => (
-              <div key={p.id} className="ai-profile-edit" style={{ paddingBottom: '15px', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                <div className="form-group">
-                  <input className="input-field" value={p.name} onChange={(e) => {
-                    const newProfiles = [...aiProfiles];
-                    newProfiles[idx].name = e.target.value;
-                    setAiProfiles(newProfiles);
-                  }} />
-                </div>
-                <div className="form-group">
-                  <select className="select-field" value={p.provider} onChange={(e) => {
-                    const newProfiles = [...aiProfiles];
-                    newProfiles[idx].provider = e.target.value;
-                    setAiProfiles(newProfiles);
-                  }}>
-                    <option value={PROVIDERS.OPENAI}>OpenAI</option>
-                    <option value={PROVIDERS.OLLAMA}>Ollama</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <input type="password" className="input-field" placeholder="API Key" value={p.apiKey} onChange={(e) => {
-                    const newProfiles = [...aiProfiles];
-                    newProfiles[idx].apiKey = e.target.value;
-                    setAiProfiles(newProfiles);
-                  }} />
-                </div>
+              <div key={p.id} className="ai-profile-edit">
+                <input className="input-field" value={p.name} onChange={(e) => { const n = [...aiProfiles]; n[idx].name = e.target.value; setAiProfiles(n); }} />
+                <input type="password" className="input-field" placeholder="API Key" value={p.apiKey} onChange={(e) => { const n = [...aiProfiles]; n[idx].apiKey = e.target.value; setAiProfiles(n); }} />
               </div>
             ))}
-            <div className="modal-footer">
-              <button className="btn btn-primary" onClick={() => setIsSettingsOpen(false)}>Save All</button>
-            </div>
+            <div className="modal-footer"><button className="btn btn-primary" onClick={() => setIsSettingsOpen(false)}>Save</button></div>
           </div>
         </div>
       )}
