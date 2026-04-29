@@ -1,32 +1,10 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Grid, Environment, GizmoHelper, GizmoViewport } from '@react-three/drei';
-import { Send, Hexagon, Check, X, BoxSelect, Trash2 } from 'lucide-react';
+import { Send, Hexagon, Check, X, BoxSelect, Trash2, Settings, Cpu } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
+import { PROVIDERS, callAI } from './services/aiService';
 import './index.css';
-
-// Simple parser for mock AI
-function parsePrompt(prompt) {
-  const p = prompt.toLowerCase();
-  let type = 'box';
-  let color = '#ffffff';
-  let size = [1, 1, 1];
-  let position = [0, 0.5, 0];
-
-  if (p.includes('sphere')) type = 'sphere';
-  if (p.includes('cylinder')) type = 'cylinder';
-
-  if (p.includes('red')) color = '#ef4444';
-  if (p.includes('green')) color = '#10b981';
-  if (p.includes('blue')) color = '#3b82f6';
-  if (p.includes('yellow')) color = '#eab308';
-  if (p.includes('purple')) color = '#a855f7';
-
-  if (type === 'sphere') position = [0, 0.5, 0];
-  if (type === 'cylinder') { size = [0.5, 0.5, 1, 32]; position = [0, 0.5, 0]; }
-
-  return { id: uuidv4(), type, color, size, position, rotation: [0, 0, 0] };
-}
 
 // 3D Object Component
 const SceneObject = ({ obj, isGhost = false }) => {
@@ -58,29 +36,63 @@ export default function App() {
   const [sceneObjects, setSceneObjects] = useState([]);
   const [ghostObject, setGhostObject] = useState(null);
   const [chatHistory, setChatHistory] = useState([
-    { id: 1, role: 'ai', text: "Hello! I'm your AI CAD Assistant. What would you like to build today? Try saying 'Add a blue box'." }
+    { id: 1, role: 'ai', text: "Hello! I'm your AI CAD Assistant. Please set up your API in settings to start building." }
   ]);
   const [inputValue, setInputValue] = useState('');
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleSend = () => {
+  // AI Configuration State
+  const [aiConfig, setAiConfig] = useState(() => {
+    const saved = localStorage.getItem('ai_config');
+    return saved ? JSON.parse(saved) : {
+      provider: PROVIDERS.OPENAI,
+      apiKey: '',
+      baseUrl: '',
+      model: 'gpt-4o'
+    };
+  });
+
+  useEffect(() => {
+    localStorage.setItem('ai_config', JSON.stringify(aiConfig));
+  }, [aiConfig]);
+
+  const handleSend = async () => {
     if (!inputValue.trim()) return;
 
-    // Add user message
-    const newChat = [...chatHistory, { id: Date.now(), role: 'user', text: inputValue }];
-    
-    // Generate AI suggestion
-    const suggestion = parsePrompt(inputValue);
-    setGhostObject(suggestion);
-    
-    newChat.push({
-      id: Date.now() + 1,
-      role: 'ai',
-      text: `I've prepared a ${suggestion.color} ${suggestion.type}. How does this look?`,
-      suggestion: suggestion
-    });
+    // Check if API key is set (if not local)
+    if (!aiConfig.apiKey && aiConfig.provider !== PROVIDERS.OLLAMA && aiConfig.provider !== PROVIDERS.LMSTUDIO) {
+      alert('Please set your API key in Settings first.');
+      setIsSettingsOpen(true);
+      return;
+    }
 
-    setChatHistory(newChat);
+    const userMsg = { id: Date.now(), role: 'user', text: inputValue };
+    setChatHistory(prev => [...prev, userMsg]);
     setInputValue('');
+    setIsLoading(true);
+
+    try {
+      const suggestion = await callAI(aiConfig.provider, aiConfig, inputValue);
+      const suggestionWithId = { ...suggestion, id: uuidv4() };
+      
+      setGhostObject(suggestionWithId);
+      setChatHistory(prev => [...prev, {
+        id: Date.now() + 1,
+        role: 'ai',
+        text: `I've prepared a ${suggestion.color} ${suggestion.type}. How does this look?`,
+        suggestion: suggestionWithId
+      }]);
+    } catch (error) {
+      console.error(error);
+      setChatHistory(prev => [...prev, {
+        id: Date.now() + 1,
+        role: 'ai',
+        text: `Error calling AI: ${error.message}. Check your API settings and CORS.`
+      }]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleAccept = (suggestion) => {
@@ -110,6 +122,13 @@ export default function App() {
         <div className="sidebar-header">
           <Hexagon size={24} color="var(--color-accent)" />
           <h1>Antigravity CAD</h1>
+          <button 
+            className="btn btn-icon" 
+            style={{ marginLeft: 'auto' }}
+            onClick={() => setIsSettingsOpen(true)}
+          >
+            <Settings size={18} />
+          </button>
         </div>
         
         <div className="chat-container">
@@ -136,6 +155,7 @@ export default function App() {
               )}
             </div>
           ))}
+          {isLoading && <div className="chat-message ai"><div className="message-bubble">Thinking...</div></div>}
         </div>
 
         <div className="chat-input-area">
@@ -146,8 +166,9 @@ export default function App() {
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+            disabled={isLoading}
           />
-          <button className="btn btn-primary" onClick={handleSend}>
+          <button className="btn btn-primary" onClick={handleSend} disabled={isLoading}>
             <Send size={18} />
           </button>
         </div>
@@ -170,7 +191,6 @@ export default function App() {
           <directionalLight position={[10, 10, 5]} intensity={1} castShadow />
           <Environment preset="city" />
 
-          {/* Grid and Axes */}
           <Grid 
             infiniteGrid 
             fadeDistance={30} 
@@ -179,12 +199,10 @@ export default function App() {
             position={[0, 0, 0]} 
           />
 
-          {/* Render Scene Objects */}
           {sceneObjects.map(obj => (
             <SceneObject key={obj.id} obj={obj} />
           ))}
 
-          {/* Render Ghost Object (Preview) */}
           {ghostObject && (
             <SceneObject obj={ghostObject} isGhost={true} />
           )}
@@ -195,6 +213,73 @@ export default function App() {
           </GizmoHelper>
         </Canvas>
       </div>
+
+      {/* Settings Modal */}
+      {isSettingsOpen && (
+        <div className="modal-overlay" onClick={() => setIsSettingsOpen(false)}>
+          <div className="modal-content glass" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2><Cpu size={20} style={{ verticalAlign: 'middle', marginRight: '8px' }} /> AI Settings</h2>
+              <button className="btn btn-icon" onClick={() => setIsSettingsOpen(false)}><X size={18} /></button>
+            </div>
+
+            <div className="form-group">
+              <label>AI Provider</label>
+              <select 
+                className="select-field"
+                value={aiConfig.provider}
+                onChange={(e) => setAiConfig({ ...aiConfig, provider: e.target.value })}
+              >
+                <option value={PROVIDERS.OPENAI}>OpenAI (Cloud)</option>
+                <option value={PROVIDERS.ANTHROPIC}>Anthropic (Cloud)</option>
+                <option value={PROVIDERS.OLLAMA}>Ollama (Local)</option>
+                <option value={PROVIDERS.LMSTUDIO}>LM Studio (Local)</option>
+              </select>
+            </div>
+
+            {(aiConfig.provider === PROVIDERS.OPENAI || aiConfig.provider === PROVIDERS.ANTHROPIC) && (
+              <div className="form-group">
+                <label>API Key</label>
+                <input 
+                  type="password" 
+                  className="input-field" 
+                  placeholder="sk-..." 
+                  value={aiConfig.apiKey}
+                  onChange={(e) => setAiConfig({ ...aiConfig, apiKey: e.target.value })}
+                />
+              </div>
+            )}
+
+            {(aiConfig.provider === PROVIDERS.OLLAMA || aiConfig.provider === PROVIDERS.LMSTUDIO) && (
+              <div className="form-group">
+                <label>Base URL</label>
+                <input 
+                  type="text" 
+                  className="input-field" 
+                  placeholder={aiConfig.provider === PROVIDERS.OLLAMA ? "http://localhost:11434" : "http://localhost:1234/v1"} 
+                  value={aiConfig.baseUrl}
+                  onChange={(e) => setAiConfig({ ...aiConfig, baseUrl: e.target.value })}
+                />
+              </div>
+            )}
+
+            <div className="form-group">
+              <label>Model Name</label>
+              <input 
+                type="text" 
+                className="input-field" 
+                placeholder="gpt-4o, llama3, etc." 
+                value={aiConfig.model}
+                onChange={(e) => setAiConfig({ ...aiConfig, model: e.target.value })}
+              />
+            </div>
+
+            <div className="modal-footer">
+              <button className="btn btn-primary" onClick={() => setIsSettingsOpen(false)}>Save Settings</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
