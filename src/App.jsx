@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, Grid, Environment, GizmoHelper, GizmoViewport, ContactShadows, PerspectiveCamera } from '@react-three/drei';
-import { Send, Hexagon, Check, X, Trash2, Settings, Download, Upload, Box, MousePointer2, Plus, ChevronDown } from 'lucide-react';
+import { Send, Hexagon, Check, X, Trash2, Settings, Download, Upload, Box, MousePointer2, Plus, ChevronDown, Copy } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
@@ -172,6 +172,19 @@ export default function App() {
     if (aiProfiles.length <= 1) return; // Keep at least one
     setAiProfiles(prev => prev.filter(p => p.id !== id));
     if (activeProfileId === id) setActiveProfileId(aiProfiles[0].id);
+  };
+
+  const duplicateProfile = (id) => {
+    const profileToCopy = aiProfiles.find(p => p.id === id);
+    if (!profileToCopy) return;
+    
+    const newId = `profile_${uuidv4().slice(0, 6)}`;
+    setAiProfiles(prev => [...prev, {
+      ...profileToCopy,
+      id: newId,
+      name: `${profileToCopy.name} (Copy)`
+    }]);
+    setActiveProfileId(newId);
   };
 
   const updateProfile = (idx, field, value) => {
@@ -509,11 +522,16 @@ export default function App() {
                     onChange={(e) => updateProfile(idx, 'name', e.target.value)}
                     placeholder="Profile Name"
                   />
-                  {aiProfiles.length > 1 && (
-                    <button className="btn btn-icon" onClick={() => removeProfile(p.id)} title="Remove Profile" style={{ color: 'var(--color-danger)' }}>
-                      <Trash2 size={16} />
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    <button className="btn btn-icon" onClick={() => duplicateProfile(p.id)} title="Duplicate Profile">
+                      <Copy size={16} />
                     </button>
-                  )}
+                    {aiProfiles.length > 1 && (
+                      <button className="btn btn-icon" onClick={() => removeProfile(p.id)} title="Remove Profile" style={{ color: 'var(--color-danger)' }}>
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="form-group">
