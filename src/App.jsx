@@ -450,7 +450,7 @@ export default function App() {
       <div className="sidebar glass">
         <div className="sidebar-header">
           <Hexagon size={24} color="var(--color-accent)" />
-          <h1>Antigravity CAD</h1>
+          <h1>Lakar CAD</h1>
           <button className="btn btn-icon" style={{ marginLeft: 'auto' }} onClick={() => setIsSettingsOpen(true)} title="AI Settings">
             <Settings size={18} />
           </button>

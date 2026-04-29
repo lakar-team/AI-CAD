@@ -137,8 +137,8 @@ async function callOpenAICompatible(url, key, model, prompt, systemPrompt) {
   };
 
   if (url.includes('openrouter.ai')) {
-    headers['HTTP-Referer'] = 'https://antigravity-cad.local';
-    headers['X-Title'] = 'Antigravity CAD';
+    headers['HTTP-Referer'] = 'https://lakar-cad.local';
+    headers['X-Title'] = 'Lakar CAD';
   }
 
   const response = await fetch(`${url}/chat/completions`, {
