@@ -321,7 +321,8 @@ export default function App() {
         if (!call || !call.tool) continue;
         const suggestion = getGeometryFromTool(call, [...sceneObjects, ...suggestions]);
         if (suggestion) {
-          suggestions.push({ ...suggestion, id: `obj_${uuidv4().slice(0, 8)}` });
+          const id = suggestion.id || `obj_${uuidv4().slice(0, 8)}`;
+          suggestions.push({ ...suggestion, id });
         }
       }
 
