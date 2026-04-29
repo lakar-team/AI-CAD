@@ -516,18 +516,45 @@ export default function App() {
                         <li><strong>Paste the key below.</strong> It starts with <code>sk-ant-...</code></li>
                         <li><strong>Model:</strong> Use <code>claude-sonnet-4-20250514</code> for best results.</li>
                       </ol>
-                      <div className="guide-note">⚠️ Direct browser calls to Anthropic may be blocked by CORS. If you get errors, use OpenAI or a local model instead.</div>
+                      <div className="guide-note">⚠️ Direct browser calls to Anthropic may be blocked by CORS. If you get errors, use OpenRouter or a local model instead.</div>
+                    </>
+                  )}
+                  {p.provider === PROVIDERS.OPENROUTER && (
+                    <>
+                      <div className="guide-title">📖 OpenRouter Setup Guide</div>
+                      <ol className="guide-steps">
+                        <li><strong>Get an API Key:</strong> Go to <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer">openrouter.ai/keys</a> and create a key.</li>
+                        <li><strong>Paste the key below.</strong> It starts with <code>sk-or-...</code></li>
+                        <li><strong>Model:</strong> Use any model from <a href="https://openrouter.ai/models" target="_blank" rel="noreferrer">the model list</a>. Format: <code>provider/model-name</code></li>
+                      </ol>
+                      <div className="guide-note">💡 OpenRouter lets you access 100+ models (GPT-4o, Claude, Gemini, Llama, etc.) with a single API key. Great for switching between models without managing multiple accounts.</div>
+                    </>
+                  )}
+                  {p.provider === PROVIDERS.GEMINI && (
+                    <>
+                      <div className="guide-title">📖 Google Gemini Setup Guide</div>
+                      <ol className="guide-steps">
+                        <li><strong>Get an API Key:</strong> Go to <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">aistudio.google.com/apikey</a> and create a key.</li>
+                        <li><strong>Paste the key below.</strong></li>
+                        <li><strong>Model:</strong> Use <code>gemini-2.5-flash</code> (fast & cheap) or <code>gemini-2.5-pro</code> (best quality).</li>
+                      </ol>
+                      <div className="guide-note">💡 Gemini has a generous free tier. Great for testing without spending money.</div>
                     </>
                   )}
                 </div>
 
-                {(p.provider === PROVIDERS.OPENAI || p.provider === PROVIDERS.ANTHROPIC) && (
+                {(p.provider === PROVIDERS.OPENAI || p.provider === PROVIDERS.ANTHROPIC || p.provider === PROVIDERS.OPENROUTER || p.provider === PROVIDERS.GEMINI) && (
                   <div className="form-group">
                     <label>API Key</label>
                     <input
                       type="password"
                       className="input-field"
-                      placeholder={p.provider === PROVIDERS.OPENAI ? 'sk-...' : 'sk-ant-...'}
+                      placeholder={
+                        p.provider === PROVIDERS.OPENAI ? 'sk-...' :
+                        p.provider === PROVIDERS.ANTHROPIC ? 'sk-ant-...' :
+                        p.provider === PROVIDERS.OPENROUTER ? 'sk-or-...' :
+                        'AIza...'
+                      }
                       value={p.apiKey}
                       onChange={(e) => updateProfile(idx, 'apiKey', e.target.value)}
                     />

@@ -1,10 +1,12 @@
 /**
  * AI Service: Production-grade multi-provider support.
- * Supports OpenAI, Anthropic (via CORS proxy), Ollama, LM Studio.
+ * Supports OpenAI, OpenRouter, Google Gemini, Anthropic, Ollama, LM Studio.
  */
 
 export const PROVIDERS = {
   OPENAI: 'openai',
+  OPENROUTER: 'openrouter',
+  GEMINI: 'gemini',
   ANTHROPIC: 'anthropic',
   OLLAMA: 'ollama',
   LMSTUDIO: 'lmstudio',
@@ -12,6 +14,8 @@ export const PROVIDERS = {
 
 export const PROVIDER_LABELS = {
   [PROVIDERS.OPENAI]: 'OpenAI',
+  [PROVIDERS.OPENROUTER]: 'OpenRouter',
+  [PROVIDERS.GEMINI]: 'Google Gemini',
   [PROVIDERS.ANTHROPIC]: 'Anthropic',
   [PROVIDERS.OLLAMA]: 'Ollama (Local)',
   [PROVIDERS.LMSTUDIO]: 'LM Studio (Local)',
@@ -19,6 +23,8 @@ export const PROVIDER_LABELS = {
 
 export const DEFAULT_MODELS = {
   [PROVIDERS.OPENAI]: 'gpt-4o',
+  [PROVIDERS.OPENROUTER]: 'google/gemini-2.5-flash',
+  [PROVIDERS.GEMINI]: 'gemini-2.5-flash',
   [PROVIDERS.ANTHROPIC]: 'claude-sonnet-4-20250514',
   [PROVIDERS.OLLAMA]: 'llama3',
   [PROVIDERS.LMSTUDIO]: 'local-model',
@@ -68,6 +74,21 @@ export async function callAI(provider, config, userPrompt, sceneContext = "The s
         baseUrl || 'https://api.openai.com/v1',
         apiKey,
         model || DEFAULT_MODELS[provider],
+        userPrompt,
+        fullSystemPrompt
+      );
+    case PROVIDERS.OPENROUTER:
+      return await callOpenAICompatible(
+        'https://openrouter.ai/api/v1',
+        apiKey,
+        model || DEFAULT_MODELS[PROVIDERS.OPENROUTER],
+        userPrompt,
+        fullSystemPrompt
+      );
+    case PROVIDERS.GEMINI:
+      return await callGemini(
+        apiKey,
+        model || DEFAULT_MODELS[PROVIDERS.GEMINI],
         userPrompt,
         fullSystemPrompt
       );
@@ -189,6 +210,37 @@ async function callAnthropic(key, model, prompt, systemPrompt) {
 
   const content = data.content?.[0]?.text;
   if (!content) throw new Error('No response content from Anthropic.');
+
+  return JSON.parse(content);
+}
+
+async function callGemini(key, model, prompt, systemPrompt) {
+  if (!key) throw new Error('API Key is missing. Please enter your Gemini key in Settings.');
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.2
+        }
+      })
+    }
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Gemini API error (${response.status}): ${errorText}`);
+  }
+
+  const data = await response.json();
+  const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!content) throw new Error('No response from Gemini. Check your API key and model name.');
 
   return JSON.parse(content);
 }
