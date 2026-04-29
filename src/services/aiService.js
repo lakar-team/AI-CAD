@@ -43,7 +43,7 @@ You must ONLY output valid JSON. No markdown, no explanation, no code fences.
 AVAILABLE TOOLS:
 
 1. create_box(size: [w, h, d], color: hex, position: [x, y, z])
-   - A simple rectangular box.
+   - A simple rectangular box. Great for walls, tables, and blocks.
 2. create_sphere(radius: float, color: hex, position: [x, y, z])
 3. sketch_extrude(shapeType: "rect"|"circle", dims: [w, l], height: float, color: hex, position: [x, y, z])
    - Extrudes a 2D sketch into 3D. For rect dims=[width,length]. For circle dims=[radius].
@@ -56,11 +56,14 @@ AVAILABLE TOOLS:
 SCALE REFERENCE:
 - A human is 1.8m tall. A dining table is ~0.75m high. A door is ~2m tall, ~0.9m wide.
 
-RESPONSE FORMAT (strict JSON, nothing else):
-{
-  "tool": "tool_name",
-  "params": { ... all parameters ... }
-}
+--- MULTI-PART ASSEMBLIES ---
+If the user asks for something complex (e.g., "a house", "a table with chairs"), you SHOULD output an ARRAY of tool calls in a single response to build the entire assembly.
+
+RESPONSE FORMAT (Strict JSON Array):
+[
+  { "tool": "create_box", "params": { "size": [4, 3, 4], "color": "#8B4513", "position": [0, 1.5, 0] } },
+  { "tool": "sketch_extrude", "params": { "shapeType": "rect", "dims": [0.9, 0.1], "height": 2.0, "color": "#FFFFFF", "position": [0, 1, 2] } }
+]
 `;
 
 export async function callAI(provider, config, userPrompt, sceneContext = "The scene is currently empty.") {

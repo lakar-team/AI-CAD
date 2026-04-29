@@ -100,7 +100,9 @@ const MainScene = ({ sceneObjects, ghostObject, selectedId, setSelectedId, scene
       {ghostObject && (
         ghostObject.type === 'pattern_group'
           ? ghostObject.clones.map(c => <SceneObject key={c.id} obj={c} isGhost={true} onSelect={() => { }} />)
-          : <SceneObject obj={ghostObject} isGhost={true} onSelect={() => { }} />
+          : ghostObject.type === 'assembly'
+            ? ghostObject.parts.map(p => <SceneObject key={p.id} obj={p} isGhost={true} onSelect={() => { }} />)
+            : <SceneObject obj={ghostObject} isGhost={true} onSelect={() => { }} />
       )}
 
       <OrbitControls makeDefault minPolarAngle={0} maxPolarAngle={Math.PI / 1.8} />
@@ -207,24 +209,38 @@ export default function App() {
 
     try {
       const sceneContext = getSceneContext();
-      const toolCall = await callAI(activeProfile.provider, activeProfile, text, sceneContext);
+      const toolOutput = await callAI(activeProfile.provider, activeProfile, text, sceneContext);
 
-      if (!toolCall || !toolCall.tool) {
-        throw new Error('AI did not return a valid tool call. Try rephrasing your request.');
+      if (!toolOutput) {
+        throw new Error('AI did not return a valid response. Try rephrasing your request.');
       }
 
-      const suggestion = getGeometryFromTool(toolCall, sceneObjects);
-      if (!suggestion) {
-        throw new Error(`Unknown tool "${toolCall.tool}". The AI may need a better prompt.`);
+      // Normalize to array
+      const toolCalls = Array.isArray(toolOutput) ? toolOutput : [toolOutput];
+      
+      const suggestions = [];
+      for (const call of toolCalls) {
+        if (!call.tool) continue;
+        const suggestion = getGeometryFromTool(call, [...sceneObjects, ...suggestions]);
+        if (suggestion) {
+          suggestions.push({ ...suggestion, id: `obj_${uuidv4().slice(0, 8)}` });
+        }
       }
 
-      const suggestionWithId = { ...suggestion, id: `obj_${uuidv4().slice(0, 8)}` };
-      setGhostObject(suggestionWithId);
+      if (suggestions.length === 0) {
+        throw new Error('The AI suggested tools, but the engine could not generate any geometry. Check the prompt.');
+      }
+
+      const ghostData = suggestions.length === 1 
+        ? suggestions[0] 
+        : { type: 'assembly', parts: suggestions, id: `batch_${uuidv4().slice(0,8)}`, label: 'Assembly' };
+
+      setGhostObject(ghostData);
       setChatHistory(prev => [...prev, {
         id: Date.now() + 1,
         role: 'ai',
-        text: `Tool: ${toolCall.tool} | ${suggestion.label || suggestion.type}. Accept or Reject the preview.`,
-        suggestion: suggestionWithId
+        text: `The AI designed an assembly with ${suggestions.length} part(s). Accept or Reject the preview.`,
+        suggestion: ghostData
       }]);
     } catch (error) {
       console.error('AI Call Error:', error);
@@ -241,6 +257,8 @@ export default function App() {
   const handleAccept = (suggestion) => {
     if (suggestion.type === 'pattern_group') {
       setSceneObjects(prev => [...prev, ...suggestion.clones]);
+    } else if (suggestion.type === 'assembly') {
+      setSceneObjects(prev => [...prev, ...suggestion.parts]);
     } else {
       setSceneObjects(prev => [...prev, suggestion]);
     }
