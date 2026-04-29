@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
-import { OrbitControls, Grid, Environment, GizmoHelper, GizmoViewport, ContactShadows, PerspectiveCamera } from '@react-three/drei';
-import { Send, Hexagon, Check, X, Trash2, Settings, Download, Upload, Box, MousePointer2, Plus, ChevronDown, Copy } from 'lucide-react';
+import { OrbitControls, Grid, Environment, GizmoHelper, GizmoViewport, ContactShadows, PerspectiveCamera, TransformControls, Gltf } from '@react-three/drei';
+import { Send, Hexagon, Check, X, Trash2, Settings, Download, Upload, Box, MousePointer2, Plus, ChevronDown, Copy, Move, RotateCcw, Maximize, PackagePlus } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
@@ -32,7 +32,15 @@ const ScaleReference = () => (
 );
 
 // 3D Object Component
-const SceneObject = ({ obj, isGhost = false, onSelect, isSelected, meshRef }) => {
+const SceneObject = ({ obj, isGhost = false, onSelect, isSelected, setSelectedMesh }) => {
+  const meshRef = useRef();
+
+  useEffect(() => {
+    if (isSelected && meshRef.current) {
+      setSelectedMesh(meshRef.current);
+    }
+  }, [isSelected, setSelectedMesh]);
+
   const extrudeSettings = useMemo(() => ({
     steps: 1,
     depth: obj.thickness || 0.1,
@@ -51,7 +59,7 @@ const SceneObject = ({ obj, isGhost = false, onSelect, isSelected, meshRef }) =>
   ];
 
   return (
-    <mesh
+    <group
       ref={meshRef}
       position={obj.position || [0, 0, 0]}
       rotation={finalRotation}
@@ -61,28 +69,65 @@ const SceneObject = ({ obj, isGhost = false, onSelect, isSelected, meshRef }) =>
         if (onSelect) onSelect(obj.id);
       }}
     >
-      {obj.type === 'box' && <boxGeometry args={obj.size} />}
-      {obj.type === 'sphere' && <sphereGeometry args={[obj.size || 0.5, 32, 32]} />}
-      {obj.type === 'cylinder' && <cylinderGeometry args={[obj.size[0], obj.size[1], obj.size[2], 32]} />}
-      {obj.type === 'torus' && <torusGeometry args={obj.size} />}
-      {obj.type === 'custom' && obj.shape && <extrudeGeometry args={[obj.shape, extrudeSettings]} />}
+      {obj.type === 'external_model' ? (
+        <>
+          <Gltf src={obj.url} castShadow receiveShadow />
+          {isSelected && (
+            <mesh rotation={[Math.PI / 2, 0, 0]}>
+              <ringGeometry args={[1, 1.1, 32]} />
+              <meshBasicMaterial color="#3b82f6" />
+            </mesh>
+          )}
+        </>
+      ) : (
+        <mesh>
+          {obj.type === 'box' && <boxGeometry args={obj.size} />}
+          {obj.type === 'sphere' && <sphereGeometry args={[obj.size || 0.5, 32, 32]} />}
+          {obj.type === 'cylinder' && <cylinderGeometry args={[obj.size[0], obj.size[1], obj.size[2], 32]} />}
+          {obj.type === 'torus' && <torusGeometry args={obj.size} />}
+          {obj.type === 'custom' && obj.shape && <extrudeGeometry args={[obj.shape, extrudeSettings]} />}
 
-      <meshStandardMaterial
-        color={isSelected ? '#3b82f6' : (obj.operation ? obj.color : obj.color)}
-        transparent={isGhost || !!obj.operation}
-        opacity={isGhost ? 0.35 : (obj.operation ? 0.7 : 1)}
-        wireframe={isGhost}
-        roughness={0.65}
-        metalness={0.05}
-        emissive={isSelected ? '#1e3a8a' : '#000000'}
-        emissiveIntensity={isSelected ? 0.3 : 0}
-      />
-    </mesh>
+          <meshStandardMaterial
+            color={isSelected ? '#3b82f6' : (obj.operation ? obj.color : obj.color)}
+            transparent={isGhost || !!obj.operation}
+            opacity={isGhost ? 0.35 : (obj.operation ? 0.7 : 1)}
+            wireframe={isGhost}
+            roughness={0.65}
+            metalness={0.05}
+            emissive={isSelected ? '#1e3a8a' : '#000000'}
+            emissiveIntensity={isSelected ? 0.3 : 0}
+          />
+        </mesh>
+      )}
+    </group>
   );
 };
 
 // Main 3D Scene
-const MainScene = ({ sceneObjects, ghostObject, selectedId, setSelectedId, sceneRef }) => {
+const MainScene = ({ sceneObjects, setSceneObjects, ghostObject, selectedId, setSelectedId, transformMode, sceneRef }) => {
+  const [selectedMesh, setSelectedMesh] = useState(null);
+
+  const onGizmoChange = () => {
+    if (!selectedMesh || !selectedId) return;
+
+    // Update the state with new transform values
+    setSceneObjects(prev => prev.map(obj => {
+      if (obj.id === selectedId) {
+        return {
+          ...obj,
+          position: [selectedMesh.position.x, selectedMesh.position.y, selectedMesh.position.z],
+          rotation: [
+            selectedMesh.rotation.x * 180 / Math.PI - (obj.type === 'custom' ? -90 : 0),
+            selectedMesh.rotation.y * 180 / Math.PI,
+            selectedMesh.rotation.z * 180 / Math.PI
+          ],
+          scale: [selectedMesh.scale.x, selectedMesh.scale.y, selectedMesh.scale.z]
+        };
+      }
+      return obj;
+    }));
+  };
+
   return (
     <group ref={sceneRef}>
       <Grid
@@ -102,20 +147,33 @@ const MainScene = ({ sceneObjects, ghostObject, selectedId, setSelectedId, scene
         <SceneObject
           key={obj.id}
           obj={obj}
-          onSelect={setSelectedId}
           isSelected={selectedId === obj.id}
+          onSelect={setSelectedId}
+          setSelectedMesh={setSelectedMesh}
         />
       ))}
 
       {ghostObject && (
         ghostObject.type === 'pattern_group'
-          ? ghostObject.clones.map(c => <SceneObject key={c.id} obj={c} isGhost={true} onSelect={() => { }} />)
+          ? ghostObject.clones.map(c => <SceneObject key={c.id} obj={c} isGhost={true} onSelect={() => { }} setSelectedMesh={() => { }} />)
           : ghostObject.type === 'assembly'
-            ? ghostObject.parts.map(p => <SceneObject key={p.id} obj={p} isGhost={true} onSelect={() => { }} />)
-            : <SceneObject obj={ghostObject} isGhost={true} onSelect={() => { }} />
+            ? ghostObject.parts.map(p => <SceneObject key={p.id} obj={p} isGhost={true} onSelect={() => { }} setSelectedMesh={() => { }} />)
+            : <SceneObject obj={ghostObject} isGhost={true} onSelect={() => { }} setSelectedMesh={() => { }} />
       )}
 
-      <OrbitControls makeDefault minPolarAngle={0} maxPolarAngle={Math.PI / 1.8} />
+      {selectedId && selectedMesh && (
+        <TransformControls
+          object={selectedMesh}
+          mode={transformMode}
+          onMouseUp={onGizmoChange}
+        />
+      )}
+
+      <OrbitControls
+        makeDefault
+        minPolarAngle={0}
+        maxPolarAngle={Math.PI / 1.8}
+      />
     </group>
   );
 };
@@ -130,6 +188,7 @@ export default function App() {
   const [inputValue, setInputValue] = useState('');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [transformMode, setTransformMode] = useState('translate'); // 'translate', 'rotate', 'scale'
   const sceneRef = useRef();
 
   // --- Multi-AI Profile System ---
@@ -470,6 +529,56 @@ export default function App() {
             </button>
           </div>
           <div className="toolbar-group">
+            <button 
+              className={`btn btn-icon ${transformMode === 'translate' ? 'active' : ''}`} 
+              title="Move Mode (T)" 
+              onClick={() => setTransformMode('translate')}
+            >
+              <Move size={18} />
+            </button>
+            <button 
+              className={`btn btn-icon ${transformMode === 'rotate' ? 'active' : ''}`} 
+              title="Rotate Mode (R)" 
+              onClick={() => setTransformMode('rotate')}
+            >
+              <RotateCcw size={18} />
+            </button>
+            <button 
+              className={`btn btn-icon ${transformMode === 'scale' ? 'active' : ''}`} 
+              title="Scale Mode (S)" 
+              onClick={() => setTransformMode('scale')}
+            >
+              <Maximize size={18} />
+            </button>
+          </div>
+
+          <div className="toolbar-group">
+            <label className="btn btn-icon" title="Import 3D Model (GLB/GLTF)" style={{ cursor: 'pointer' }}>
+              <PackagePlus size={18} />
+              <input 
+                type="file" 
+                accept=".glb,.gltf" 
+                hidden 
+                onChange={(e) => {
+                  const file = e.target.files[0];
+                  if (file) {
+                    const url = URL.createObjectURL(file);
+                    const newObj = {
+                      id: `model_${uuidv4().slice(0, 8)}`,
+                      type: 'external_model',
+                      url: url,
+                      position: [0, 0, 0],
+                      rotation: [0, 0, 0],
+                      scale: [1, 1, 1],
+                      label: `Imported: ${file.name}`
+                    };
+                    setSceneObjects(prev => [...prev, newObj]);
+                    setChatHistory(prev => [...prev, { id: Date.now(), role: 'ai', text: `📦 Imported "${file.name}". You can move and rotate it manually.` }]);
+                  }
+                  e.target.value = '';
+                }} 
+              />
+            </label>
             <button
               className={`btn btn-icon ${selectedId ? 'active' : ''}`}
               title={selectedId ? `Selected: ${selectedId}` : 'Click a part to select'}
@@ -491,9 +600,11 @@ export default function App() {
 
           <MainScene
             sceneObjects={sceneObjects}
+            setSceneObjects={setSceneObjects}
             ghostObject={ghostObject}
             selectedId={selectedId}
             setSelectedId={setSelectedId}
+            transformMode={transformMode}
             sceneRef={sceneRef}
           />
 
