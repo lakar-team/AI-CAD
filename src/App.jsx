@@ -55,6 +55,7 @@ const SceneObject = ({ obj, isGhost = false, onSelect, isSelected, meshRef }) =>
     >
       {obj.type === 'box' && <boxGeometry args={obj.size} />}
       {obj.type === 'sphere' && <sphereGeometry args={[obj.size || 0.5, 32, 32]} />}
+      {obj.type === 'cylinder' && <cylinderGeometry args={[obj.size[0], obj.size[1], obj.size[2], 32]} />}
       {obj.type === 'custom' && obj.shape && <extrudeGeometry args={[obj.shape, extrudeSettings]} />}
 
       <meshStandardMaterial
@@ -209,37 +210,53 @@ export default function App() {
 
     try {
       const sceneContext = getSceneContext();
-      const toolOutput = await callAI(activeProfile.provider, activeProfile, text, sceneContext);
+      const aiResponse = await callAI(activeProfile.provider, activeProfile, text, sceneContext);
 
-      if (!toolOutput) {
+      if (!aiResponse) {
         throw new Error('AI did not return a valid response. Try rephrasing your request.');
       }
 
-      // Normalize to array
-      const toolCalls = Array.isArray(toolOutput) ? toolOutput : [toolOutput];
+      // Handle the new { message, tools } schema. Fallback to array for backward compatibility.
+      const aiMessage = aiResponse.message || '';
+      const toolCalls = Array.isArray(aiResponse.tools) ? aiResponse.tools 
+                      : (Array.isArray(aiResponse) ? aiResponse : [aiResponse]);
       
       const suggestions = [];
       for (const call of toolCalls) {
-        if (!call.tool) continue;
+        if (!call || !call.tool) continue;
         const suggestion = getGeometryFromTool(call, [...sceneObjects, ...suggestions]);
         if (suggestion) {
           suggestions.push({ ...suggestion, id: `obj_${uuidv4().slice(0, 8)}` });
         }
       }
 
-      if (suggestions.length === 0) {
-        throw new Error('The AI suggested tools, but the engine could not generate any geometry. Check the prompt.');
+      if (suggestions.length === 0 && !aiMessage) {
+        throw new Error('The AI returned an empty response. Check the prompt.');
       }
 
+      // If no tools, just post the conversational message
+      if (suggestions.length === 0) {
+        setChatHistory(prev => [...prev, {
+          id: Date.now() + 1,
+          role: 'ai',
+          text: aiMessage
+        }]);
+        return;
+      }
+
+      // If there are tools, create the ghost object and post the message + preview prompt
       const ghostData = suggestions.length === 1 
         ? suggestions[0] 
         : { type: 'assembly', parts: suggestions, id: `batch_${uuidv4().slice(0,8)}`, label: 'Assembly' };
 
       setGhostObject(ghostData);
+      
+      const promptText = aiMessage ? `${aiMessage}\n\n(Preview generated. Accept or Reject.)` : `The AI designed an assembly with ${suggestions.length} part(s). Accept or Reject the preview.`;
+
       setChatHistory(prev => [...prev, {
         id: Date.now() + 1,
         role: 'ai',
-        text: `The AI designed an assembly with ${suggestions.length} part(s). Accept or Reject the preview.`,
+        text: promptText,
         suggestion: ghostData
       }]);
     } catch (error) {

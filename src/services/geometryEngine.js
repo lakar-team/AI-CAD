@@ -8,6 +8,8 @@ import * as THREE from 'three';
 export const GEOMETRY_TOOLS = {
   BOX: 'create_box',
   SPHERE: 'create_sphere',
+  CYLINDER: 'create_cylinder',
+  CONE: 'create_cone',
   GEAR: 'create_gear',
   EXTRUDE: 'sketch_extrude',
   BOOLEAN: 'apply_boolean',
@@ -34,6 +36,24 @@ export function getGeometryFromTool(toolCall, existingObjects = []) {
         color: params.color || '#e5e7eb',
         position: params.position || [0, 0.5, 0],
         label: `Sphere r=${params.radius || 0.5}m`
+      };
+
+    case GEOMETRY_TOOLS.CYLINDER:
+      return {
+        type: 'cylinder',
+        size: [params.radiusTop || params.radius || 0.5, params.radiusBottom || params.radius || 0.5, params.height || 1],
+        color: params.color || '#e5e7eb',
+        position: params.position || [0, 0.5, 0],
+        label: `Cylinder h=${params.height || 1}m`
+      };
+
+    case GEOMETRY_TOOLS.CONE:
+      return {
+        type: 'cylinder',
+        size: [0, params.radiusBottom || params.radius || 0.5, params.height || 1],
+        color: params.color || '#e5e7eb',
+        position: params.position || [0, 0.5, 0],
+        label: `Cone h=${params.height || 1}m`
       };
 
     case GEOMETRY_TOOLS.GEAR:
@@ -66,6 +86,12 @@ function generateExtrusion({ shapeType = 'rect', dims = [1, 1], height = 0.5, co
   } else if (shapeType === 'circle') {
     const r = dims[0] || 0.5;
     shape.absarc(0, 0, r, 0, Math.PI * 2, false);
+  } else if (shapeType === 'triangle') {
+    const [w, l] = dims;
+    shape.moveTo(-w / 2, -l / 2);
+    shape.lineTo(w / 2, -l / 2);
+    shape.lineTo(0, l / 2);
+    shape.lineTo(-w / 2, -l / 2);
   }
 
   return {
@@ -198,6 +224,14 @@ export function deserializeFromSave(savedData) {
       } else if (shapeType === 'circle') {
         const shape = new THREE.Shape();
         shape.absarc(0, 0, dims[0] || 0.5, 0, Math.PI * 2, false);
+        obj.shape = shape;
+      } else if (shapeType === 'triangle') {
+        const shape = new THREE.Shape();
+        const [w, l] = dims;
+        shape.moveTo(-w / 2, -l / 2);
+        shape.lineTo(w / 2, -l / 2);
+        shape.lineTo(0, l / 2);
+        shape.lineTo(-w / 2, -l / 2);
         obj.shape = shape;
       } else if (shapeType === 'gear') {
         const r_pitch = (teeth * mod) / 2;

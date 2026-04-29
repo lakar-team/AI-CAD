@@ -45,12 +45,14 @@ AVAILABLE TOOLS:
 1. create_box(size: [w, h, d], color: hex, position: [x, y, z])
    - A simple rectangular box. Great for walls, tables, and blocks.
 2. create_sphere(radius: float, color: hex, position: [x, y, z])
-3. sketch_extrude(shapeType: "rect"|"circle", dims: [w, l], height: float, color: hex, position: [x, y, z])
-   - Extrudes a 2D sketch into 3D. For rect dims=[width,length]. For circle dims=[radius].
-4. create_gear(teeth: int, module: float, thickness: float, color: hex, position: [x, y, z])
-5. apply_boolean(targetId: string, operation: "subtract", type: "hole", dims: [radius], position: [x, y, z])
+3. create_cylinder(radius: float, height: float, color: hex, position: [x, y, z])
+4. create_cone(radius: float, height: float, color: hex, position: [x, y, z])
+5. sketch_extrude(shapeType: "rect"|"circle"|"triangle", dims: [w, l], height: float, color: hex, position: [x, y, z])
+   - Extrudes a 2D sketch into 3D. For rect/triangle dims=[width,length]. For circle dims=[radius].
+6. create_gear(teeth: int, module: float, thickness: float, color: hex, position: [x, y, z])
+7. apply_boolean(targetId: string, operation: "subtract", type: "hole", dims: [radius], position: [x, y, z])
    - Cuts a hole into an existing object. Requires the target object's ID from the scene context.
-6. create_pattern(sourceId: string, type: "linear"|"circular", count: int, spacing: float)
+8. create_pattern(sourceId: string, type: "linear"|"circular", count: int, spacing: float)
    - Duplicates an existing object in a pattern. Requires the source object's ID.
 
 SCALE REFERENCE:
@@ -64,13 +66,16 @@ Object B's Y position = Object A's Y + (Object A height / 2) + (Object B height 
 Failure to calculate centers will result in objects floating or intersecting!
 
 --- MULTI-PART ASSEMBLIES ---
-If the user asks for something complex (e.g., "a house", "a table with chairs"), you SHOULD output an ARRAY of tool calls in a single response to build the entire assembly.
+If the user asks for something complex (e.g., "a house", "a table with chairs"), you SHOULD output MULTIPLE tool calls in the "tools" array to build the entire assembly.
 
-RESPONSE FORMAT (Strict JSON Array):
-[
-  { "tool": "create_box", "params": { "size": [4, 3, 4], "color": "#8B4513", "position": [0, 1.5, 0] } },
-  { "tool": "sketch_extrude", "params": { "shapeType": "rect", "dims": [0.9, 0.1], "height": 2.0, "color": "#FFFFFF", "position": [0, 1, 2] } }
-]
+RESPONSE FORMAT (Strict JSON Object):
+{
+  "message": "A conversational response explaining what you did, or answering the user's question.",
+  "tools": [
+    { "tool": "create_box", "params": { "size": [4, 3, 4], "color": "#8B4513", "position": [0, 1.5, 0] } },
+    { "tool": "sketch_extrude", "params": { "shapeType": "triangle", "dims": [4.2, 4.2], "height": 2.0, "color": "#AA0000", "position": [0, 4, 0] } }
+  ]
+}
 `;
 
 export async function callAI(provider, config, userPrompt, sceneContext = "The scene is currently empty.") {
