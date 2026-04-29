@@ -42,12 +42,20 @@ const SceneObject = ({ obj, isGhost = false, onSelect, isSelected, meshRef }) =>
     bevelSegments: 2
   }), [obj.thickness, obj.operation]);
 
+  const baseRotation = obj.type === 'custom' ? [-Math.PI / 2, 0, 0] : [0, 0, 0];
+  const userRotation = obj.rotation ? obj.rotation.map(d => (d * Math.PI) / 180) : [0, 0, 0];
+  const finalRotation = [
+    baseRotation[0] + userRotation[0],
+    baseRotation[1] + userRotation[1],
+    baseRotation[2] + userRotation[2]
+  ];
+
   return (
     <mesh
       ref={meshRef}
-      position={obj.position}
-      rotation={obj.type === 'custom' ? [-Math.PI / 2, 0, 0] : [0, 0, 0]}
-      scale={isGhost ? 1.02 : 1}
+      position={obj.position || [0, 0, 0]}
+      rotation={finalRotation}
+      scale={obj.scale ? (isGhost ? obj.scale.map(s => s * 1.02) : obj.scale) : (isGhost ? 1.02 : 1)}
       onClick={(e) => {
         e.stopPropagation();
         if (onSelect) onSelect(obj.id);
@@ -56,12 +64,13 @@ const SceneObject = ({ obj, isGhost = false, onSelect, isSelected, meshRef }) =>
       {obj.type === 'box' && <boxGeometry args={obj.size} />}
       {obj.type === 'sphere' && <sphereGeometry args={[obj.size || 0.5, 32, 32]} />}
       {obj.type === 'cylinder' && <cylinderGeometry args={[obj.size[0], obj.size[1], obj.size[2], 32]} />}
+      {obj.type === 'torus' && <torusGeometry args={obj.size} />}
       {obj.type === 'custom' && obj.shape && <extrudeGeometry args={[obj.shape, extrudeSettings]} />}
 
       <meshStandardMaterial
-        color={isSelected ? '#3b82f6' : (obj.operation === 'subtract' ? '#222' : obj.color)}
-        transparent={isGhost || obj.operation === 'subtract'}
-        opacity={isGhost ? 0.35 : (obj.operation === 'subtract' ? 0.7 : 1)}
+        color={isSelected ? '#3b82f6' : (obj.operation ? obj.color : obj.color)}
+        transparent={isGhost || !!obj.operation}
+        opacity={isGhost ? 0.35 : (obj.operation ? 0.7 : 1)}
         wireframe={isGhost}
         roughness={0.65}
         metalness={0.05}
@@ -272,13 +281,30 @@ export default function App() {
   };
 
   const handleAccept = (suggestion) => {
+    let newParts = [];
     if (suggestion.type === 'pattern_group') {
-      setSceneObjects(prev => [...prev, ...suggestion.clones]);
+      newParts = suggestion.clones;
     } else if (suggestion.type === 'assembly') {
-      setSceneObjects(prev => [...prev, ...suggestion.parts]);
+      newParts = suggestion.parts;
     } else {
-      setSceneObjects(prev => [...prev, suggestion]);
+      newParts = [suggestion];
     }
+
+    setSceneObjects(prev => {
+      let updated = [...prev];
+      newParts.forEach(part => {
+        if (part.isModification) {
+          const idx = updated.findIndex(o => o.id === part.id);
+          if (idx >= 0) {
+            updated[idx] = { ...updated[idx], ...part, isModification: undefined };
+          }
+        } else {
+          updated.push(part);
+        }
+      });
+      return updated;
+    });
+
     setGhostObject(null);
     setChatHistory(prev => [...prev, { id: Date.now(), role: 'ai', text: '✅ Added to scene.' }]);
   };

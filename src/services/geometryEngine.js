@@ -10,10 +10,13 @@ export const GEOMETRY_TOOLS = {
   SPHERE: 'create_sphere',
   CYLINDER: 'create_cylinder',
   CONE: 'create_cone',
+  TORUS: 'create_torus',
   GEAR: 'create_gear',
   EXTRUDE: 'sketch_extrude',
   BOOLEAN: 'apply_boolean',
   PATTERN: 'create_pattern',
+  DUPLICATE: 'duplicate_object',
+  TRANSFORM: 'transform_object',
 };
 
 export function getGeometryFromTool(toolCall, existingObjects = []) {
@@ -26,6 +29,7 @@ export function getGeometryFromTool(toolCall, existingObjects = []) {
         size: params.size || [1, 1, 1],
         color: params.color || '#e5e7eb',
         position: params.position || [0, 0.5, 0],
+        rotation: params.rotation || [0, 0, 0],
         label: `Box ${(params.size || [1,1,1]).map(s => s.toFixed ? s.toFixed(2) : s).join('x')}m`
       };
 
@@ -35,6 +39,7 @@ export function getGeometryFromTool(toolCall, existingObjects = []) {
         size: params.radius || 0.5,
         color: params.color || '#e5e7eb',
         position: params.position || [0, 0.5, 0],
+        rotation: params.rotation || [0, 0, 0],
         label: `Sphere r=${params.radius || 0.5}m`
       };
 
@@ -44,6 +49,7 @@ export function getGeometryFromTool(toolCall, existingObjects = []) {
         size: [params.radiusTop || params.radius || 0.5, params.radiusBottom || params.radius || 0.5, params.height || 1],
         color: params.color || '#e5e7eb',
         position: params.position || [0, 0.5, 0],
+        rotation: params.rotation || [0, 0, 0],
         label: `Cylinder h=${params.height || 1}m`
       };
 
@@ -53,7 +59,18 @@ export function getGeometryFromTool(toolCall, existingObjects = []) {
         size: [0, params.radiusBottom || params.radius || 0.5, params.height || 1],
         color: params.color || '#e5e7eb',
         position: params.position || [0, 0.5, 0],
+        rotation: params.rotation || [0, 0, 0],
         label: `Cone h=${params.height || 1}m`
+      };
+
+    case GEOMETRY_TOOLS.TORUS:
+      return {
+        type: 'torus',
+        size: [params.radius || 1, params.tube || 0.4, 16, 100],
+        color: params.color || '#e5e7eb',
+        position: params.position || [0, 0.5, 0],
+        rotation: params.rotation || [0, 0, 0],
+        label: `Torus r=${params.radius || 1}m`
       };
 
     case GEOMETRY_TOOLS.GEAR:
@@ -68,13 +85,43 @@ export function getGeometryFromTool(toolCall, existingObjects = []) {
     case GEOMETRY_TOOLS.PATTERN:
       return handlePattern(params, existingObjects);
 
+    case GEOMETRY_TOOLS.DUPLICATE:
+      return handleDuplicate(params, existingObjects);
+
+    case GEOMETRY_TOOLS.TRANSFORM:
+      return handleTransform(params, existingObjects);
+
     default:
       return null;
   }
 }
 
+function handleDuplicate({ sourceId, position, rotation }, existingObjects) {
+  const source = existingObjects.find(o => o.id === sourceId);
+  if (!source) return null;
+  return {
+    ...source,
+    id: undefined, // Will be assigned by App.jsx
+    position: position || source.position,
+    rotation: rotation || source.rotation || [0, 0, 0],
+    label: `${source.label} (Copy)`
+  };
+}
+
+function handleTransform({ targetId, position, rotation, scale }, existingObjects) {
+  const target = existingObjects.find(o => o.id === targetId);
+  if (!target) return null;
+  return {
+    ...target,
+    isModification: true, // Flag for App.jsx to update instead of add
+    position: position || target.position,
+    rotation: rotation || target.rotation || [0, 0, 0],
+    scale: scale || target.scale || [1, 1, 1]
+  };
+}
+
 // --- Core Six: Sketch & Extrude ---
-function generateExtrusion({ shapeType = 'rect', dims = [1, 1], height = 0.5, color = '#e5e7eb', position = [0, 0, 0] }) {
+function generateExtrusion({ shapeType = 'rect', dims = [1, 1], height = 0.5, color = '#e5e7eb', position = [0, 0, 0], rotation = [0, 0, 0] }) {
   const shape = new THREE.Shape();
   if (shapeType === 'rect') {
     const [w, l] = dims;
@@ -101,6 +148,7 @@ function generateExtrusion({ shapeType = 'rect', dims = [1, 1], height = 0.5, co
     thickness: height,
     color: color,
     position: position,
+    rotation: rotation,
     label: `Extruded ${shapeType} ${dims.join('x')}m h=${height}m`
   };
 }
@@ -113,16 +161,21 @@ function handleBoolean({ targetId, operation = 'subtract', type = 'hole', dims =
   const shape = new THREE.Shape();
   shape.absarc(0, 0, radius, 0, Math.PI * 2, false);
 
+  let color = '#ef4444'; // Subtract
+  if (operation === 'union') color = '#22c55e';
+  if (operation === 'intersect') color = '#eab308';
+
   return {
     type: 'custom',
     shapeData: { shapeType: 'circle', dims: [radius] },
     shape: shape,
     thickness: target ? (target.thickness || 0.5) * 1.5 : 0.5,
-    color: '#ef4444',
+    color: color,
     position: position,
-    operation: 'subtract',
+    rotation: [0, 0, 0],
+    operation: operation,
     parentId: targetId,
-    label: `Hole r=${radius}m in ${targetId}`
+    label: `${operation.charAt(0).toUpperCase() + operation.slice(1)} r=${radius}m in ${targetId}`
   };
 }
 
@@ -158,7 +211,7 @@ function handlePattern({ sourceId, type = 'linear', count = 2, spacing = 1 }, ex
 }
 
 // --- Gear ---
-function generateGear({ teeth = 12, module: mod = 0.2, thickness = 0.1, color = '#e5e7eb', position = [0, 0, 0] }) {
+function generateGear({ teeth = 12, module: mod = 0.2, thickness = 0.1, color = '#e5e7eb', position = [0, 0, 0], rotation = [0, 0, 0] }) {
   const r_pitch = (teeth * mod) / 2;
   const r_add = r_pitch + mod;
   const r_ded = r_pitch - 1.25 * mod;
@@ -183,6 +236,7 @@ function generateGear({ teeth = 12, module: mod = 0.2, thickness = 0.1, color = 
     thickness,
     color,
     position,
+    rotation,
     label: `${teeth}T Gear (m=${mod})`
   };
 }
