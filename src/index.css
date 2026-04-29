@@ -234,10 +234,45 @@ body, html {
   left: 50%;
   transform: translateX(-50%);
   display: flex;
-  gap: 8px;
-  padding: 8px;
+  gap: 12px;
+  padding: 8px 16px;
   border-radius: 100px;
   z-index: 10;
+}
+
+.toolbar-group {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 0 12px;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.toolbar-group:last-child {
+  border-right: none;
+}
+
+.chat-footer {
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(0,0,0,0.2);
+}
+
+.profile-select {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.1);
+  color: var(--color-text-secondary);
+  font-size: 0.8rem;
+  padding: 4px 8px;
+  border-radius: 4px;
+  outline: none;
+  cursor: pointer;
+}
+
+.profile-select:hover {
+  border-color: var(--color-accent);
 }
 
 .modal-overlay {
