@@ -796,11 +796,11 @@ export default function App() {
                   onClick={async () => {
                     setChatHistory(prev => [...prev, { id: Date.now(), role: 'ai', text: `🔄 Testing connection to ${PROVIDER_LABELS[p.provider]}...` }]);
                     try {
-                      const result = await callAI(p.provider, p, 'Respond with: {"tool":"create_box","params":{"size":[0.5,0.5,0.5],"color":"#22c55e","position":[0,0.25,0]}}', 'Empty scene.');
-                      if (result && result.tool) {
+                      const result = await callAI(p.provider, p, 'Connection Test: Respond with a message "Lakar CAD is connected" and one tool call to create a 0.5m green box at origin.', 'Empty scene.');
+                      if (result && (result.tool || result.tools)) {
                         setChatHistory(prev => [...prev, { id: Date.now(), role: 'ai', text: `✅ Connection successful! ${PROVIDER_LABELS[p.provider]} is working.` }]);
                       } else {
-                        setChatHistory(prev => [...prev, { id: Date.now(), role: 'ai', text: `⚠️ Connected but got unexpected response. Check model name.` }]);
+                        setChatHistory(prev => [...prev, { id: Date.now(), role: 'ai', text: `⚠️ Connected but got unexpected response structure. Check model name.` }]);
                       }
                     } catch (err) {
                       setChatHistory(prev => [...prev, { id: Date.now(), role: 'ai', text: `❌ Test failed: ${err.message}` }]);
