@@ -70,6 +70,15 @@ const SceneObject = ({ obj, isSelected, isGhost, onSelect, onAnchorClick, grabAn
     bevelSegments: 2
   }), [obj.thickness, obj.operation]);
 
+  const geometry = useMemo(() => {
+    if (obj.type === 'box') return new THREE.BoxGeometry(...(obj.size || [1, 1, 1]));
+    if (obj.type === 'sphere') return new THREE.SphereGeometry(obj.size || 0.5, 32, 32);
+    if (obj.type === 'cylinder') return new THREE.CylinderGeometry(obj.size[0] || 0.5, obj.size[1] || 0.5, obj.size[2] || 1, 32);
+    if (obj.type === 'torus') return new THREE.TorusGeometry(...(obj.size || [0.5, 0.2, 16, 100]));
+    if (obj.type === 'custom' && obj.shape) return new THREE.ExtrudeGeometry(obj.shape, extrudeSettings);
+    return new THREE.BoxGeometry(0.1, 0.1, 0.1);
+  }, [obj, extrudeSettings]);
+
   const baseRotation = obj.type === 'custom' ? [-Math.PI / 2, 0, 0] : [0, 0, 0];
   const userRotation = obj.rotation ? obj.rotation.map(d => (d * Math.PI) / 180) : [0, 0, 0];
   const finalRotation = [
@@ -114,7 +123,6 @@ const SceneObject = ({ obj, isSelected, isGhost, onSelect, onAnchorClick, grabAn
           {obj.ext === 'obj' ? <ObjModel url={obj.url} /> : 
            obj.ext === 'stl' ? <StlModel url={obj.url} /> : 
            <Gltf src={obj.url} castShadow receiveShadow />}
-          <Edges threshold={15} color="#000000" />
           {isSelected && (
             <mesh rotation={[Math.PI / 2, 0, 0]}>
               <ringGeometry args={[1, 1.1, 32]} />
@@ -123,13 +131,7 @@ const SceneObject = ({ obj, isSelected, isGhost, onSelect, onAnchorClick, grabAn
           )}
         </React.Suspense>
       ) : (
-        <mesh>
-          {obj.type === 'box' && <boxGeometry args={obj.size} />}
-          {obj.type === 'sphere' && <sphereGeometry args={[obj.size || 0.5, 32, 32]} />}
-          {obj.type === 'cylinder' && <cylinderGeometry args={[obj.size[0], obj.size[1], obj.size[2], 32]} />}
-          {obj.type === 'torus' && <torusGeometry args={obj.size} />}
-          {obj.type === 'custom' && obj.shape && <extrudeGeometry args={[obj.shape, extrudeSettings]} />}
-
+        <mesh geometry={geometry}>
           <meshStandardMaterial
             color={isSelected ? '#3b82f6' : (obj.operation ? obj.color : obj.color)}
             transparent={isGhost || !!obj.operation}
@@ -656,24 +658,54 @@ export default function App() {
         <button className="btn btn-icon" title="Eraser (E)" onClick={() => { if (selectedId) setSceneObjects(prev => prev.filter(o => o.id !== selectedId)); }}>
           <Eraser size={20} />
         </button>
-        <button className="btn btn-icon" title="Paint Bucket (B)">
+        <button className="btn btn-icon" title="Paint Bucket (B)" onClick={() => {
+          if (selectedId) {
+            const colors = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'];
+            const randomColor = colors[Math.floor(Math.random() * colors.length)];
+            setSceneObjects(prev => prev.map(o => o.id === selectedId ? { ...o, color: randomColor } : o));
+          }
+        }}>
           <PaintBucket size={20} />
         </button>
         <div className="toolbar-divider" />
-        <button className="btn btn-icon" title="Line (L)">
+        <button className="btn btn-icon" title="Line (L)" onClick={() => setChatHistory(prev => [...prev, { id: Date.now(), role: 'ai', text: '✏️ Line tool selected (Currently maps to AI request or manual placement).' }])}>
           <Pencil size={20} />
         </button>
-        <button className="btn btn-icon" title="Arc (A)">
+        <button className="btn btn-icon" title="Arc (A)" onClick={() => setChatHistory(prev => [...prev, { id: Date.now(), role: 'ai', text: '🔄 Arc tool selected (Currently maps to AI request).' }])}>
           <RotateCcw size={20} />
         </button>
-        <button className="btn btn-icon" title="Shapes (R/C)">
+        <button className="btn btn-icon" title="Shapes (R/C)" onClick={() => addPrimitive('box')}>
           <Box size={20} />
         </button>
         <div className="toolbar-divider" />
-        <button className="btn btn-icon" title="Push/Pull (P)">
+        <button className="btn btn-icon" title="Push/Pull (P)" onClick={() => {
+          if (selectedId) {
+            setSceneObjects(prev => prev.map(o => {
+              if (o.id === selectedId) {
+                // simple push/pull emulation
+                const newScale = [...o.scale];
+                newScale[1] *= 1.2;
+                return { ...o, scale: newScale };
+              }
+              return o;
+            }));
+          }
+        }}>
           <Plus size={20} />
         </button>
-        <button className="btn btn-icon" title="Offset (F)">
+        <button className="btn btn-icon" title="Offset (F)" onClick={() => {
+          if (selectedId) {
+            setSceneObjects(prev => prev.map(o => {
+              if (o.id === selectedId) {
+                const newScale = [...o.scale];
+                newScale[0] *= 0.8;
+                newScale[2] *= 0.8;
+                return { ...o, scale: newScale };
+              }
+              return o;
+            }));
+          }
+        }}>
           <Layers size={20} />
         </button>
         <div className="toolbar-divider" />
