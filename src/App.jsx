@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, Grid, Environment, GizmoHelper, GizmoViewport, ContactShadows, PerspectiveCamera, TransformControls, Gltf } from '@react-three/drei';
-import { Send, Hexagon, Check, X, Trash2, Settings, Download, Upload, Box, MousePointer2, Plus, ChevronDown, Copy, Move, RotateCcw, Maximize, PackagePlus, Eye, Layers, Library } from 'lucide-react';
+import { Send, Hexagon, Check, X, Trash2, Settings, Download, Upload, Box, MousePointer2, Plus, ChevronDown, Copy, Move, RotateCcw, Maximize, PackagePlus, Eye, Layers, Library, Circle, Database, LifeBuoy, Search, Loader2 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
@@ -226,6 +226,9 @@ export default function App() {
   const [transformMode, setTransformMode] = useState('translate'); // 'translate', 'rotate', 'scale'
   const [visionEnabled, setVisionEnabled] = useState(false);
   const [isLibraryOpen, setIsLibraryOpen] = useState(false);
+  const [polyHavenAssets, setPolyHavenAssets] = useState({});
+  const [libraryLoading, setLibraryLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const sceneRef = useRef();
 
   // --- Multi-AI Profile System ---
@@ -286,7 +289,7 @@ export default function App() {
   const updateProfile = (idx, field, value) => {
     setAiProfiles(prev => {
       const updated = [...prev];
-      updated[idx] = { ...updated[idx], [field]: value };
+      updated[idx][field] = value;
       // Auto-fill defaults when provider changes
       if (field === 'provider') {
         updated[idx].model = DEFAULT_MODELS[value] || '';
@@ -294,6 +297,62 @@ export default function App() {
       }
       return updated;
     });
+  };
+
+  // --- Manual Creation ---
+  const addPrimitive = (type) => {
+    const id = `obj_${uuidv4().slice(0, 8)}`;
+    let newObj = {
+      id,
+      type,
+      position: [0, 0, 0],
+      rotation: [0, 0, 0],
+      scale: [1, 1, 1],
+      color: '#ffffff',
+      label: `Manual ${type.charAt(0).toUpperCase() + type.slice(1)}`
+    };
+
+    if (type === 'box') newObj.size = [1, 1, 1];
+    if (type === 'sphere') newObj.size = 0.5;
+    if (type === 'cylinder') newObj.size = [0.5, 0.5, 1];
+    if (type === 'torus') newObj.size = [0.5, 0.2, 16, 100];
+
+    setSceneObjects(prev => [...prev, newObj]);
+    setSelectedId(id);
+  };
+
+  // --- Poly Haven Fetch ---
+  useEffect(() => {
+    if (isLibraryOpen && Object.keys(polyHavenAssets).length === 0) {
+      setLibraryLoading(true);
+      fetch('https://api.polyhaven.com/assets?t=models')
+        .then(res => res.json())
+        .then(data => {
+          setPolyHavenAssets(data);
+          setLibraryLoading(false);
+        })
+        .catch(err => {
+          console.error('Poly Haven Fetch Error:', err);
+          setLibraryLoading(false);
+        });
+    }
+  }, [isLibraryOpen]);
+
+  const insertPolyHavenAsset = (id, name) => {
+    const glbUrl = `https://dl.polyhaven.org/file/ph-assets/Models/glb/1k/${id}.glb`;
+    const newObj = {
+      id: `ph_${id}_${uuidv4().slice(0, 4)}`,
+      type: 'external_model',
+      ext: 'glb',
+      url: glbUrl,
+      position: [0, 0, 0],
+      rotation: [0, 0, 0],
+      scale: [1, 1, 1],
+      label: name || id
+    };
+    setSceneObjects(prev => [...prev, newObj]);
+    setIsLibraryOpen(false);
+    setChatHistory(prev => [...prev, { id: Date.now(), role: 'ai', text: `📦 Imported "${name}" from Poly Haven.` }]);
   };
 
   // --- Scene Context for AI ---
@@ -601,6 +660,21 @@ export default function App() {
       {/* ---- 3D Canvas ---- */}
       <div className="main-canvas-area">
         <div className="top-toolbar glass">
+          <div className="toolbar-group">
+            <button className="btn btn-icon" title="Add Box" onClick={() => addPrimitive('box')}>
+              <Box size={18} />
+            </button>
+            <button className="btn btn-icon" title="Add Sphere" onClick={() => addPrimitive('sphere')}>
+              <Circle size={18} />
+            </button>
+            <button className="btn btn-icon" title="Add Cylinder" onClick={() => addPrimitive('cylinder')}>
+              <Database size={18} />
+            </button>
+            <button className="btn btn-icon" title="Add Torus" onClick={() => addPrimitive('torus')}>
+              <LifeBuoy size={18} />
+            </button>
+          </div>
+
           <div className="toolbar-group">
             <button className="btn btn-icon" title="Save Project (.json)" onClick={saveProject}>
               <Download size={18} />
@@ -1019,35 +1093,63 @@ export default function App() {
       {/* ---- Asset Library Modal ---- */}
       {isLibraryOpen && (
         <div className="modal-overlay" onClick={() => setIsLibraryOpen(false)}>
-          <div className="modal-content glass" onClick={(e) => e.stopPropagation()} style={{ width: '600px', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
+          <div className="modal-content glass" onClick={(e) => e.stopPropagation()} style={{ width: '800px', height: '80vh', display: 'flex', flexDirection: 'column' }}>
             <div className="modal-header">
-              <h2>3D Asset Library</h2>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <h2>Poly Haven Assets</h2>
+                <div className="search-box" style={{ background: 'rgba(0,0,0,0.05)', borderRadius: '20px', padding: '4px 12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Search size={16} color="var(--color-text-muted)" />
+                  <input 
+                    type="text" 
+                    placeholder="Search models..." 
+                    style={{ border: 'none', background: 'transparent', outline: 'none', fontSize: '0.9rem', width: '200px' }}
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                </div>
+              </div>
               <button className="btn btn-icon" onClick={() => setIsLibraryOpen(false)}><X size={18} /></button>
             </div>
+            
             <div style={{ padding: '16px', flex: 1, overflowY: 'auto' }}>
-              <p style={{ color: 'var(--color-text-muted)', marginBottom: '16px' }}>
-                Browse curated architectural assets. Direct API integration for Sketchfab requires an individual API key. For now, you can upload your own `.glb`, `.obj`, or `.stl` files using the Import button.
-              </p>
-              
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
-                {['Basic Chair', 'Table', 'Door Frame', 'Window Frame', 'Staircase'].map((item, i) => (
-                  <div key={i} style={{ border: '1px solid var(--border-glass)', borderRadius: '8px', padding: '12px', textAlign: 'center', background: 'rgba(0,0,0,0.02)' }}>
-                    <div style={{ height: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-muted)' }}>
-                      <Box size={32} />
+              {libraryLoading ? (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: '12px', color: 'var(--color-text-muted)' }}>
+                  <Loader2 className="animate-spin" size={32} />
+                  <p>Fetching CC0 assets from Poly Haven...</p>
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '16px' }}>
+                  {Object.entries(polyHavenAssets)
+                    .filter(([id, data]) => !searchQuery || data.name.toLowerCase().includes(searchQuery.toLowerCase()))
+                    .map(([id, data]) => (
+                    <div key={id} className="asset-card" style={{ border: '1px solid var(--border-glass)', borderRadius: '8px', overflow: 'hidden', background: 'rgba(255,255,255,0.05)', transition: 'transform 0.2s' }}>
+                      <div style={{ position: 'relative', width: '100%', paddingTop: '100%', background: 'rgba(0,0,0,0.1)' }}>
+                        <img 
+                          src={data.thumbnail_url} 
+                          alt={data.name} 
+                          style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+                          loading="lazy"
+                        />
+                      </div>
+                      <div style={{ padding: '8px' }}>
+                        <div style={{ fontWeight: 600, fontSize: '0.8rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: '8px' }} title={data.name}>
+                          {data.name}
+                        </div>
+                        <button 
+                          className="btn btn-primary" 
+                          style={{ width: '100%', fontSize: '0.75rem', padding: '4px' }}
+                          onClick={() => insertPolyHavenAsset(id, data.name)}
+                        >
+                          Insert
+                        </button>
+                      </div>
                     </div>
-                    <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '8px' }}>{item}</div>
-                    <button 
-                      className="btn btn-secondary" 
-                      style={{ width: '100%' }}
-                      onClick={() => {
-                        setChatHistory(prev => [...prev, { id: Date.now(), role: 'ai', text: `⚠️ API Key required to download "${item}". Please use manual import.` }]);
-                      }}
-                    >
-                      Insert
-                    </button>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div style={{ padding: '12px', fontSize: '0.75rem', color: 'var(--color-text-muted)', textAlign: 'center', borderTop: '1px solid var(--border-glass)' }}>
+              Assets provided by <a href="https://polyhaven.com" target="_blank" rel="noreferrer" style={{ color: 'var(--color-accent)' }}>Poly Haven</a> under CC0 license.
             </div>
           </div>
         </div>
