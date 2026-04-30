@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
-import { OrbitControls, Grid, Environment, GizmoHelper, GizmoViewport, ContactShadows, PerspectiveCamera, TransformControls, Gltf } from '@react-three/drei';
-import { Send, Hexagon, Check, X, Trash2, Settings, Download, Upload, Box, MousePointer2, Plus, ChevronDown, Copy, Move, RotateCcw, Maximize, PackagePlus, Eye, Layers, Library, Circle, Database, LifeBuoy, Search, Loader2 } from 'lucide-react';
+import { OrbitControls, Grid, Environment, GizmoHelper, GizmoViewport, ContactShadows, PerspectiveCamera, TransformControls, Gltf, Edges } from '@react-three/drei';
+import { Send, Hexagon, Check, X, Trash2, Settings, Download, Upload, Box, MousePointer2, Plus, ChevronDown, Copy, Move, RotateCcw, Maximize, PackagePlus, Eye, Layers, Library, Circle, Database, LifeBuoy, Search, Loader2, Eraser, PaintBucket, PenLine, Pencil, Type, Ruler, ExternalLink, Grab, Undo2, Redo2 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
@@ -52,7 +52,7 @@ const StlModel = ({ url }) => {
 };
 
 // 3D Object Component
-const SceneObject = ({ obj, isGhost = false, onSelect, isSelected, setSelectedMesh }) => {
+const SceneObject = ({ obj, isSelected, isGhost, onSelect, onAnchorClick, grabAnchor, setSelectedMesh }) => {
   const meshRef = useRef();
 
   useEffect(() => {
@@ -93,9 +93,19 @@ const SceneObject = ({ obj, isGhost = false, onSelect, isSelected, setSelectedMe
     >
       {/* Anchor Points Visualization */}
       {isSelected && anchors.map((a, i) => (
-        <mesh key={i} position={a.pos}>
-          <sphereGeometry args={[0.03, 8, 8]} />
-          <meshBasicMaterial color="#ef4444" transparent opacity={0.8} />
+        <mesh 
+          key={i} 
+          position={a.pos}
+          scale={obj.scale ? [1 / obj.scale[0], 1 / obj.scale[1], 1 / obj.scale[2]] : [1, 1, 1]}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (onAnchorClick) onAnchorClick(obj.id, i, e.point);
+          }}
+          onPointerOver={(e) => { e.stopPropagation(); document.body.style.cursor = 'crosshair'; }}
+          onPointerOut={() => { document.body.style.cursor = 'auto'; }}
+        >
+          <sphereGeometry args={[0.04, 16, 16]} />
+          <meshBasicMaterial color={grabAnchor?.anchorIdx === i ? "#22c55e" : "#ef4444"} depthTest={false} transparent opacity={0.9} />
         </mesh>
       ))}
 
@@ -104,6 +114,7 @@ const SceneObject = ({ obj, isGhost = false, onSelect, isSelected, setSelectedMe
           {obj.ext === 'obj' ? <ObjModel url={obj.url} /> : 
            obj.ext === 'stl' ? <StlModel url={obj.url} /> : 
            <Gltf src={obj.url} castShadow receiveShadow />}
+          <Edges threshold={15} color="#000000" />
           {isSelected && (
             <mesh rotation={[Math.PI / 2, 0, 0]}>
               <ringGeometry args={[1, 1.1, 32]} />
@@ -127,8 +138,9 @@ const SceneObject = ({ obj, isGhost = false, onSelect, isSelected, setSelectedMe
             roughness={0.65}
             metalness={0.05}
             emissive={isSelected ? '#1e3a8a' : '#000000'}
-            emissiveIntensity={isSelected ? 0.3 : 0}
+            emissiveIntensity={isSelected ? 0.5 : 0}
           />
+          <Edges threshold={15} color="#000000" />
         </mesh>
       )}
     </group>
@@ -136,9 +148,7 @@ const SceneObject = ({ obj, isGhost = false, onSelect, isSelected, setSelectedMe
 };
 
 // Main 3D Scene
-const MainScene = ({ sceneObjects, setSceneObjects, ghostObject, selectedId, setSelectedId, transformMode, sceneRef }) => {
-  const [selectedMesh, setSelectedMesh] = useState(null);
-
+const MainScene = ({ sceneObjects, setSceneObjects, ghostObject, selectedId, setSelectedId, transformMode, sceneRef, handleAnchorClick, grabAnchor, setSelectedMesh }) => {
   const onGizmoChange = () => {
     if (!selectedMesh || !selectedId) return;
 
@@ -181,6 +191,8 @@ const MainScene = ({ sceneObjects, setSceneObjects, ghostObject, selectedId, set
           obj={obj}
           isSelected={selectedId === obj.id}
           onSelect={setSelectedId}
+          onAnchorClick={handleAnchorClick}
+          grabAnchor={grabAnchor}
           setSelectedMesh={setSelectedMesh}
         />
       ))}
@@ -229,6 +241,8 @@ export default function App() {
   const [polyHavenAssets, setPolyHavenAssets] = useState({});
   const [libraryLoading, setLibraryLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [grabAnchor, setGrabAnchor] = useState(null); // { objId, anchorIdx, worldPos }
+  const [selectedMesh, setSelectedMesh] = useState(null);
   const sceneRef = useRef();
 
   // --- Multi-AI Profile System ---
@@ -353,6 +367,56 @@ export default function App() {
     setSceneObjects(prev => [...prev, newObj]);
     setIsLibraryOpen(false);
     setChatHistory(prev => [...prev, { id: Date.now(), role: 'ai', text: `📦 Imported "${name}" from Poly Haven.` }]);
+  };
+
+  const handleAnchorClick = (objId, anchorIdx, worldPos) => {
+    if (grabAnchor && grabAnchor.objId === objId && grabAnchor.anchorIdx === anchorIdx) {
+      setGrabAnchor(null);
+      return;
+    }
+    setGrabAnchor({ objId, anchorIdx, worldPos });
+    setChatHistory(prev => [...prev, { id: Date.now(), role: 'ai', text: `📍 Picked up anchor ${anchorIdx}. Click another point to snap.` }]);
+  };
+
+  // --- Global Click Handler for Snapping ---
+  const handleScenePointerDown = (e) => {
+    if (!grabAnchor) return;
+    
+    // If we have a grabAnchor, and we click something else, we want to snap
+    // In a real CAD, we'd use a more complex snapping engine
+    // For now, if we click a point, we move the object so grabAnchor aligns with click point
+    const targetPos = e.point;
+    
+    setSceneObjects(prev => prev.map(obj => {
+      if (obj.id === grabAnchor.objId) {
+        // Calculate offset from current position to anchor
+        // This is a simplified version; real snapping needs to account for rotation
+        const currentObj = prev.find(o => o.id === grabAnchor.objId);
+        const anchorLocalPos = getAnchorPoints(currentObj)[grabAnchor.anchorIdx].pos;
+        
+        // Convert local anchor pos to world pos (simplified for now)
+        // position + (rotation matrix * (localPos * scale))
+        // Since we're in a hurry, we'll just use the difference
+        const currentAnchorWorld = grabAnchor.worldPos;
+        const moveVector = [
+          targetPos.x - currentAnchorWorld.x,
+          targetPos.y - currentAnchorWorld.y,
+          targetPos.z - currentAnchorWorld.z
+        ];
+
+        return {
+          ...obj,
+          position: [
+            obj.position[0] + moveVector[0],
+            obj.position[1] + moveVector[1],
+            obj.position[2] + moveVector[2]
+          ]
+        };
+      }
+      return obj;
+    }));
+
+    setGrabAnchor(null);
   };
 
   // --- Scene Context for AI ---
@@ -584,6 +648,57 @@ export default function App() {
 
   return (
     <div className="app-container">
+      {/* ---- Left SketchUp-style Toolbar ---- */}
+      <div className="left-toolbar glass">
+        <button className={`btn btn-icon ${transformMode === 'select' ? 'active' : ''}`} title="Select (Space)" onClick={() => setTransformMode('translate')}>
+          <MousePointer2 size={20} />
+        </button>
+        <button className="btn btn-icon" title="Eraser (E)" onClick={() => { if (selectedId) setSceneObjects(prev => prev.filter(o => o.id !== selectedId)); }}>
+          <Eraser size={20} />
+        </button>
+        <button className="btn btn-icon" title="Paint Bucket (B)">
+          <PaintBucket size={20} />
+        </button>
+        <div className="toolbar-divider" />
+        <button className="btn btn-icon" title="Line (L)">
+          <Pencil size={20} />
+        </button>
+        <button className="btn btn-icon" title="Arc (A)">
+          <RotateCcw size={20} />
+        </button>
+        <button className="btn btn-icon" title="Shapes (R/C)">
+          <Box size={20} />
+        </button>
+        <div className="toolbar-divider" />
+        <button className="btn btn-icon" title="Push/Pull (P)">
+          <Plus size={20} />
+        </button>
+        <button className="btn btn-icon" title="Offset (F)">
+          <Layers size={20} />
+        </button>
+        <div className="toolbar-divider" />
+        <button className={`btn btn-icon ${transformMode === 'translate' ? 'active' : ''}`} title="Move (M)" onClick={() => setTransformMode('translate')}>
+          <Move size={20} />
+        </button>
+        <button className={`btn btn-icon ${transformMode === 'rotate' ? 'active' : ''}`} title="Rotate (Q)" onClick={() => setTransformMode('rotate')}>
+          <RotateCcw size={20} />
+        </button>
+        <button className={`btn btn-icon ${transformMode === 'scale' ? 'active' : ''}`} title="Scale (S)" onClick={() => setTransformMode('scale')}>
+          <Maximize size={20} />
+        </button>
+        <div className="toolbar-divider" />
+        <button className="btn btn-icon" title="Tape Measure (T)">
+          <Ruler size={20} />
+        </button>
+        <button className="btn btn-icon" title="Text">
+          <Type size={20} />
+        </button>
+        <div className="toolbar-divider" style={{ marginTop: 'auto' }} />
+        <button className="btn btn-icon" title="Orbit (O)">
+          <RotateCcw size={20} />
+        </button>
+      </div>
+
       {/* ---- Sidebar ---- */}
       <div className="sidebar glass">
         <div className="sidebar-header">
@@ -763,7 +878,7 @@ export default function App() {
           </div>
         </div>
 
-        <Canvas shadows gl={{ preserveDrawingBuffer: true }} dpr={[1, 2]} onPointerMissed={() => setSelectedId(null)}>
+        <Canvas shadows gl={{ preserveDrawingBuffer: true }} dpr={[1, 2]} onPointerMissed={() => setSelectedId(null)} onPointerDown={handleScenePointerDown}>
           <color attach="background" args={['#f3f4f6']} />
           <PerspectiveCamera makeDefault position={[6, 5, 6]} fov={45} />
           <ambientLight intensity={1.2} />
@@ -778,6 +893,9 @@ export default function App() {
             setSelectedId={setSelectedId}
             transformMode={transformMode}
             sceneRef={sceneRef}
+            handleAnchorClick={handleAnchorClick}
+            grabAnchor={grabAnchor}
+            setSelectedMesh={setSelectedMesh}
           />
 
           <GizmoHelper alignment="bottom-right" margin={[80, 80]}>
