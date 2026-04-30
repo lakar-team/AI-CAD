@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
-import { OrbitControls, Grid, Environment, GizmoHelper, GizmoViewport, ContactShadows, PerspectiveCamera, TransformControls, Gltf, Edges } from '@react-three/drei';
+import { OrbitControls, Grid, Environment, GizmoHelper, GizmoViewport, ContactShadows, PerspectiveCamera, TransformControls, Gltf, Edges, Text } from '@react-three/drei';
 import { Send, Hexagon, Check, X, Trash2, Settings, Download, Upload, Box, MousePointer2, Plus, ChevronDown, Copy, Move, RotateCcw, Maximize, PackagePlus, Eye, Layers, Library, Circle, Database, LifeBuoy, Search, Loader2, Eraser, PaintBucket, PenLine, Pencil, Type, Ruler, ExternalLink, Grab, Undo2, Redo2 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import * as THREE from 'three';
@@ -11,7 +11,7 @@ import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 
 import { PROVIDERS, PROVIDER_LABELS, DEFAULT_MODELS, callAI } from './services/aiService';
-import { getGeometryFromTool, serializeForSave, deserializeFromSave, getAnchorPoints } from './services/geometryEngine';
+import { getGeometryFromTool, serializeForSave, deserializeFromSave, getAnchorPoints, detectClosedLoop, createFaceFromLoop, extrudeFace, buildShapeFromFaceVertices, getRotationFromNormal } from './services/geometryEngine';
 import './index.css';
 
 // Scale Helper: A 1.8m "Human" reference
@@ -62,89 +62,119 @@ const SceneObject = ({ obj, isSelected, isGhost, onSelect, onAnchorClick, grabAn
   }, [isSelected, setSelectedMesh]);
 
   const extrudeSettings = useMemo(() => ({
-    steps: 1,
-    depth: obj.thickness || 0.1,
-    bevelEnabled: !obj.operation,
-    bevelThickness: 0.005,
-    bevelSize: 0.005,
-    bevelSegments: 2
+    steps: 1, depth: obj.thickness || 0.1,
+    bevelEnabled: !obj.operation, bevelThickness: 0.005, bevelSize: 0.005, bevelSegments: 2
   }), [obj.thickness, obj.operation]);
 
   const geometry = useMemo(() => {
     if (obj.type === 'box') return new THREE.BoxGeometry(...(obj.size || [1, 1, 1]));
     if (obj.type === 'sphere') return new THREE.SphereGeometry(obj.size || 0.5, 32, 32);
-    if (obj.type === 'cylinder') return new THREE.CylinderGeometry(obj.size[0] || 0.5, obj.size[1] || 0.5, obj.size[2] || 1, 32);
+    if (obj.type === 'cylinder') return new THREE.CylinderGeometry(obj.size?.[0] || 0.5, obj.size?.[1] || 0.5, obj.size?.[2] || 1, 32);
     if (obj.type === 'torus') return new THREE.TorusGeometry(...(obj.size || [0.5, 0.2, 16, 100]));
     if (obj.type === 'custom' && obj.shape) return new THREE.ExtrudeGeometry(obj.shape, extrudeSettings);
-    return new THREE.BoxGeometry(0.1, 0.1, 0.1);
+    if (obj.type === 'face' && obj.vertices) {
+      const shape = buildShapeFromFaceVertices(obj.vertices, obj.normal || [0,1,0]);
+      return new THREE.ShapeGeometry(shape);
+    }
+    if (obj.type === 'extruded' && obj.vertices) {
+      const shape = buildShapeFromFaceVertices(obj.vertices, obj.normal || [0,1,0]);
+      return new THREE.ExtrudeGeometry(shape, { depth: obj.depth || 1, bevelEnabled: false });
+    }
+    if (obj.type === 'line') {
+      const dir = new THREE.Vector3(obj.end[0]-obj.start[0], obj.end[1]-obj.start[1], obj.end[2]-obj.start[2]);
+      const len = dir.length();
+      const path = new THREE.LineCurve3(new THREE.Vector3(0,0,0), new THREE.Vector3(0, len, 0));
+      return new THREE.TubeGeometry(path, 1, 0.02, 8, false);
+    }
+    return null;
   }, [obj, extrudeSettings]);
+
+  // Compute rotation for line type to align with direction
+  const lineRotation = useMemo(() => {
+    if (obj.type !== 'line') return null;
+    const dir = new THREE.Vector3(obj.end[0]-obj.start[0], obj.end[1]-obj.start[1], obj.end[2]-obj.start[2]).normalize();
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0), dir);
+    const e = new THREE.Euler().setFromQuaternion(q);
+    return [e.x, e.y, e.z];
+  }, [obj]);
+
+  // Face/extruded rotation to align with normal
+  const faceRotation = useMemo(() => {
+    if ((obj.type === 'face' || obj.type === 'extruded') && obj.normal) {
+      return getRotationFromNormal(obj.normal);
+    }
+    return null;
+  }, [obj]);
 
   const baseRotation = obj.type === 'custom' ? [-Math.PI / 2, 0, 0] : [0, 0, 0];
   const userRotation = obj.rotation ? obj.rotation.map(d => (d * Math.PI) / 180) : [0, 0, 0];
-  const finalRotation = [
-    baseRotation[0] + userRotation[0],
-    baseRotation[1] + userRotation[1],
-    baseRotation[2] + userRotation[2]
-  ];
+  let finalRotation;
+  if (obj.type === 'line' && lineRotation) {
+    finalRotation = lineRotation;
+  } else if ((obj.type === 'face' || obj.type === 'extruded') && faceRotation) {
+    finalRotation = faceRotation;
+  } else {
+    finalRotation = [baseRotation[0]+userRotation[0], baseRotation[1]+userRotation[1], baseRotation[2]+userRotation[2]];
+  }
 
   const anchors = useMemo(() => isSelected ? getAnchorPoints(obj) : [], [isSelected, obj]);
 
+  // Position for line type uses start point
+  const position = obj.type === 'line' ? obj.start : (obj.position || [0,0,0]);
+
+  // Text type rendering
+  if (obj.type === 'text') {
+    return (
+      <group ref={meshRef} position={obj.position || [0,0,0]} rotation={finalRotation}
+        scale={obj.scale || [1,1,1]}
+        onClick={(e) => { e.stopPropagation(); if (onSelect) onSelect(obj.id); }}>
+        <mesh>
+          <planeGeometry args={[obj.planeSize?.[0] || 1, obj.planeSize?.[1] || 0.4]} />
+          <meshBasicMaterial color="#ffffff" transparent opacity={0.15} side={THREE.DoubleSide} />
+        </mesh>
+        <Text fontSize={0.15} color={obj.color || '#000000'} anchorX="center" anchorY="middle" position={[0,0,0.001]}>
+          {obj.text || 'Text'}
+        </Text>
+      </group>
+    );
+  }
+
   return (
-    <group
-      ref={meshRef}
-      position={obj.position || [0, 0, 0]}
-      rotation={finalRotation}
+    <group ref={meshRef} position={position} rotation={finalRotation}
       scale={obj.scale ? (isGhost ? obj.scale.map(s => s * 1.02) : obj.scale) : (isGhost ? 1.02 : 1)}
-      onClick={(e) => {
-        e.stopPropagation();
-        if (onSelect) onSelect(obj.id);
-      }}
-    >
-      {/* Anchor Points Visualization */}
+      onClick={(e) => { e.stopPropagation(); if (onSelect) onSelect(obj.id); }}>
       {isSelected && anchors.map((a, i) => (
-        <mesh 
-          key={i} 
-          position={a.pos}
-          scale={obj.scale ? [1 / obj.scale[0], 1 / obj.scale[1], 1 / obj.scale[2]] : [1, 1, 1]}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (onAnchorClick) onAnchorClick(obj.id, i, e.point);
-          }}
+        <mesh key={i} position={a.pos}
+          scale={obj.scale ? [1/obj.scale[0], 1/obj.scale[1], 1/obj.scale[2]] : [1,1,1]}
+          onClick={(e) => { e.stopPropagation(); if (onAnchorClick) onAnchorClick(obj.id, i, e.point); }}
           onPointerOver={(e) => { e.stopPropagation(); document.body.style.cursor = 'crosshair'; }}
-          onPointerOut={() => { document.body.style.cursor = 'auto'; }}
-        >
+          onPointerOut={() => { document.body.style.cursor = 'auto'; }}>
           <sphereGeometry args={[0.04, 16, 16]} />
-          <meshBasicMaterial color={grabAnchor?.anchorIdx === i ? "#22c55e" : "#ef4444"} depthTest={false} transparent opacity={0.9} />
+          <meshBasicMaterial color={grabAnchor?.anchorIdx === i ? '#22c55e' : '#ef4444'} depthTest={false} transparent opacity={0.9} />
         </mesh>
       ))}
 
       {obj.type === 'external_model' ? (
         <React.Suspense fallback={<mesh><boxGeometry args={[0.5,0.5,0.5]}/><meshBasicMaterial color="gray" wireframe/></mesh>}>
-          {obj.ext === 'obj' ? <ObjModel url={obj.url} /> : 
-           obj.ext === 'stl' ? <StlModel url={obj.url} /> : 
+          {obj.ext === 'obj' ? <ObjModel url={obj.url} /> :
+           obj.ext === 'stl' ? <StlModel url={obj.url} /> :
            <Gltf src={obj.url} castShadow receiveShadow />}
-          {isSelected && (
-            <mesh rotation={[Math.PI / 2, 0, 0]}>
-              <ringGeometry args={[1, 1.1, 32]} />
-              <meshBasicMaterial color="#3b82f6" />
-            </mesh>
-          )}
         </React.Suspense>
-      ) : (
+      ) : geometry ? (
         <mesh geometry={geometry}>
           <meshStandardMaterial
-            color={isSelected ? '#3b82f6' : (obj.operation ? obj.color : obj.color)}
-            transparent={isGhost || !!obj.operation}
-            opacity={isGhost ? 0.35 : (obj.operation ? 0.7 : 1)}
+            color={isSelected ? '#3b82f6' : (obj.color || '#ffffff')}
+            transparent={isGhost || !!obj.operation || obj.type === 'face'}
+            opacity={isGhost ? 0.35 : (obj.type === 'face' ? 0.6 : (obj.operation ? 0.7 : 1))}
             wireframe={isGhost || wireframeMode}
-            roughness={0.65}
-            metalness={0.05}
+            roughness={0.65} metalness={0.05}
+            side={obj.type === 'face' ? THREE.DoubleSide : THREE.FrontSide}
             emissive={isSelected ? '#1e3a8a' : '#000000'}
             emissiveIntensity={isSelected ? 0.5 : 0}
           />
-          <Edges threshold={15} color="#000000" />
+          {obj.type !== 'line' && <Edges threshold={15} color="#000000" />}
         </mesh>
-      )}
+      ) : null}
     </group>
   );
 };
@@ -248,6 +278,137 @@ export default function App() {
   const [wireframeMode, setWireframeMode] = useState(false);
   const sceneRef = useRef();
 
+  // State for additional tools
+  const [toolMode, setToolMode] = useState('select'); // select, line, arc, tape, text, extrude
+  const [tempStart, setTempStart] = useState(null);
+  const [showMeasure, setShowMeasure] = useState(null);
+
+  // --- Manual Creation ---
+  const addPrimitive = (type) => {
+    const id = `obj_${uuidv4().slice(0, 8)}`;
+    let newObj = {
+      id, type,
+      position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1],
+      color: '#ffffff',
+      label: `${type.charAt(0).toUpperCase() + type.slice(1)}`
+    };
+    if (type === 'box') newObj.size = [1, 1, 1];
+    if (type === 'sphere') newObj.size = 0.5;
+    if (type === 'cylinder') newObj.size = [0.5, 0.5, 1];
+    if (type === 'torus') newObj.size = [0.5, 0.2, 16, 100];
+    setSceneObjects(prev => [...prev, newObj]);
+    setSelectedId(id);
+  };
+
+  // --- Pointer handler: routes to active tool ---
+  const handleScenePointerDown = useCallback((e) => {
+    const point = e.point;
+    if (!point) return;
+
+    if (toolMode === 'line') {
+      if (!tempStart) {
+        setTempStart(point.clone());
+        setChatHistory(prev => [...prev, { id: Date.now(), role: 'ai', text: `📍 Line start set. Click second point.` }]);
+      } else {
+        const id = uuidv4();
+        const lineObj = {
+          id, type: 'line',
+          start: [tempStart.x, tempStart.y, tempStart.z],
+          end: [point.x, point.y, point.z],
+          color: '#ef4444', scale: [1, 1, 1],
+          label: `Line`
+        };
+        setSceneObjects(prev => {
+          const next = [...prev, lineObj];
+          // Check for closed loop among all lines
+          const allLines = next.filter(o => o.type === 'line');
+          const loop = detectClosedLoop(allLines);
+          if (loop) {
+            const face = createFaceFromLoop(loop.vertices);
+            face.id = uuidv4();
+            // Remove lines that formed the loop, add the face
+            const filtered = next.filter(o => !loop.lineIds.includes(o.id));
+            setChatHistory(p => [...p, { id: Date.now(), role: 'ai', text: `✅ Closed loop detected! Face created from ${loop.vertices.length} points. Select it and use Push/Pull to extrude.` }]);
+            return [...filtered, face];
+          }
+          return next;
+        });
+        setTempStart(point.clone()); // chain: end of this line = start of next
+      }
+    } else if (toolMode === 'arc') {
+      if (!tempStart) {
+        setTempStart(point.clone());
+        setChatHistory(prev => [...prev, { id: Date.now(), role: 'ai', text: `📍 Arc center set. Click to define radius/end.` }]);
+      } else {
+        const radius = tempStart.distanceTo(point);
+        const segments = 16;
+        // Create arc as a series of lines on the XZ plane at the start Y
+        for (let i = 0; i < segments; i++) {
+          const a1 = (i / segments) * Math.PI;
+          const a2 = ((i + 1) / segments) * Math.PI;
+          const id = uuidv4();
+          setSceneObjects(prev => [...prev, {
+            id, type: 'line',
+            start: [tempStart.x + Math.cos(a1) * radius, tempStart.y, tempStart.z + Math.sin(a1) * radius],
+            end: [tempStart.x + Math.cos(a2) * radius, tempStart.y, tempStart.z + Math.sin(a2) * radius],
+            color: '#8b5cf6', scale: [1, 1, 1], label: 'Arc segment'
+          }]);
+        }
+        setTempStart(null);
+      }
+    } else if (toolMode === 'tape') {
+      if (!tempStart) {
+        setTempStart(point.clone());
+        setChatHistory(prev => [...prev, { id: Date.now(), role: 'ai', text: `📏 Measuring from this point. Click second point.` }]);
+      } else {
+        const dist = tempStart.distanceTo(point).toFixed(3);
+        setChatHistory(prev => [...prev, { id: Date.now(), role: 'ai', text: `📏 Distance: ${dist} meters` }]);
+        setShowMeasure({ distance: dist });
+        setTimeout(() => setShowMeasure(null), 4000);
+        setTempStart(null);
+      }
+    } else if (toolMode === 'text') {
+      const text = prompt('Enter text to place:');
+      if (text) {
+        const id = uuidv4();
+        const textObj = {
+          id, type: 'text', text,
+          position: [point.x, point.y + 0.2, point.z],
+          rotation: [0, 0, 0], scale: [1, 1, 1],
+          planeSize: [Math.max(text.length * 0.12, 0.5), 0.3],
+          color: '#000000', label: `Text: ${text}`
+        };
+        setSceneObjects(prev => [...prev, textObj]);
+        setSelectedId(id);
+        setToolMode('select');
+      }
+    } else if (toolMode === 'extrude') {
+      // Extrude needs a selected face
+      const selObj = sceneObjects.find(o => o.id === selectedId);
+      if (selObj && selObj.type === 'face') {
+        const depth = parseFloat(prompt('Enter extrusion depth (meters):', '1'));
+        if (!isNaN(depth) && depth > 0) {
+          const extruded = extrudeFace(selObj, depth);
+          extruded.id = selObj.id; // replace in-place
+          setSceneObjects(prev => prev.map(o => o.id === selObj.id ? extruded : o));
+          setChatHistory(prev => [...prev, { id: Date.now(), role: 'ai', text: `🏗️ Extruded face by ${depth}m along its normal.` }]);
+          setToolMode('select');
+        }
+      } else {
+        setChatHistory(prev => [...prev, { id: Date.now(), role: 'ai', text: `⚠️ Select a Face first, then use Push/Pull to extrude it.` }]);
+      }
+    }
+  }, [toolMode, tempStart, sceneObjects, selectedId]);
+
+  // Escape key cancels active tool
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') { setToolMode('select'); setTempStart(null); }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   // --- Multi-AI Profile System ---
   const [aiProfiles, setAiProfiles] = useState(() => {
     const saved = localStorage.getItem('ai_profiles_v2');
@@ -316,28 +477,6 @@ export default function App() {
     });
   };
 
-  // --- Manual Creation ---
-  const addPrimitive = (type) => {
-    const id = `obj_${uuidv4().slice(0, 8)}`;
-    let newObj = {
-      id,
-      type,
-      position: [0, 0, 0],
-      rotation: [0, 0, 0],
-      scale: [1, 1, 1],
-      color: '#ffffff',
-      label: `Manual ${type.charAt(0).toUpperCase() + type.slice(1)}`
-    };
-
-    if (type === 'box') newObj.size = [1, 1, 1];
-    if (type === 'sphere') newObj.size = 0.5;
-    if (type === 'cylinder') newObj.size = [0.5, 0.5, 1];
-    if (type === 'torus') newObj.size = [0.5, 0.2, 16, 100];
-
-    setSceneObjects(prev => [...prev, newObj]);
-    setSelectedId(id);
-  };
-
   // --- Poly Haven Fetch ---
   useEffect(() => {
     if (isLibraryOpen && Object.keys(polyHavenAssets).length === 0) {
@@ -379,47 +518,6 @@ export default function App() {
     }
     setGrabAnchor({ objId, anchorIdx, worldPos });
     setChatHistory(prev => [...prev, { id: Date.now(), role: 'ai', text: `📍 Picked up anchor ${anchorIdx}. Click another point to snap.` }]);
-  };
-
-  // --- Global Click Handler for Snapping ---
-  const handleScenePointerDown = (e) => {
-    if (!grabAnchor) return;
-    
-    // If we have a grabAnchor, and we click something else, we want to snap
-    // In a real CAD, we'd use a more complex snapping engine
-    // For now, if we click a point, we move the object so grabAnchor aligns with click point
-    const targetPos = e.point;
-    
-    setSceneObjects(prev => prev.map(obj => {
-      if (obj.id === grabAnchor.objId) {
-        // Calculate offset from current position to anchor
-        // This is a simplified version; real snapping needs to account for rotation
-        const currentObj = prev.find(o => o.id === grabAnchor.objId);
-        const anchorLocalPos = getAnchorPoints(currentObj)[grabAnchor.anchorIdx].pos;
-        
-        // Convert local anchor pos to world pos (simplified for now)
-        // position + (rotation matrix * (localPos * scale))
-        // Since we're in a hurry, we'll just use the difference
-        const currentAnchorWorld = grabAnchor.worldPos;
-        const moveVector = [
-          targetPos.x - currentAnchorWorld.x,
-          targetPos.y - currentAnchorWorld.y,
-          targetPos.z - currentAnchorWorld.z
-        ];
-
-        return {
-          ...obj,
-          position: [
-            obj.position[0] + moveVector[0],
-            obj.position[1] + moveVector[1],
-            obj.position[2] + moveVector[2]
-          ]
-        };
-      }
-      return obj;
-    }));
-
-    setGrabAnchor(null);
   };
 
   // --- Scene Context for AI ---
@@ -653,84 +751,73 @@ export default function App() {
     <div className="app-container">
       {/* ---- Left SketchUp-style Toolbar ---- */}
       <div className="left-toolbar glass">
-        <button className={`btn btn-icon ${transformMode === 'select' ? 'active' : ''}`} title="Select (Space)" onClick={() => setTransformMode('translate')}>
+        <button className={`btn btn-icon ${toolMode === 'select' ? 'active' : ''}`} title="Select (Space)" onClick={() => { setToolMode('select'); setTempStart(null); setTransformMode('translate'); }}>
           <MousePointer2 size={20} />
         </button>
-        <button className="btn btn-icon" title="Eraser (E)" onClick={() => { if (selectedId) setSceneObjects(prev => prev.filter(o => o.id !== selectedId)); }}>
+        <button className="btn btn-icon" title="Eraser (E)" onClick={() => { if (selectedId) { setSceneObjects(prev => prev.filter(o => o.id !== selectedId)); setSelectedId(null); } }}>
           <Eraser size={20} />
         </button>
         <button className="btn btn-icon" title="Paint Bucket (B)" onClick={() => {
           if (selectedId) {
-            const colors = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'];
-            const randomColor = colors[Math.floor(Math.random() * colors.length)];
-            setSceneObjects(prev => prev.map(o => o.id === selectedId ? { ...o, color: randomColor } : o));
+            const color = prompt('Enter color hex (e.g. #ef4444):', '#ef4444');
+            if (color) setSceneObjects(prev => prev.map(o => o.id === selectedId ? { ...o, color } : o));
           }
         }}>
           <PaintBucket size={20} />
         </button>
         <div className="toolbar-divider" />
-        <button className="btn btn-icon" title="Line (L)" onClick={() => setChatHistory(prev => [...prev, { id: Date.now(), role: 'ai', text: '✏️ Line tool selected (Currently maps to AI request or manual placement).' }])}>
+        <button className={`btn btn-icon ${toolMode === 'line' ? 'active' : ''}`} title="Line (L) — click two points" onClick={() => { setToolMode('line'); setTempStart(null); }}>
           <Pencil size={20} />
         </button>
-        <button className="btn btn-icon" title="Arc (A)" onClick={() => setChatHistory(prev => [...prev, { id: Date.now(), role: 'ai', text: '🔄 Arc tool selected (Currently maps to AI request).' }])}>
-          <RotateCcw size={20} />
+        <button className={`btn btn-icon ${toolMode === 'arc' ? 'active' : ''}`} title="Arc (A) — click center then radius" onClick={() => { setToolMode('arc'); setTempStart(null); }}>
+          <Circle size={20} />
         </button>
-        <button className="btn btn-icon" title="Shapes (R/C)" onClick={() => addPrimitive('box')}>
+        <button className="btn btn-icon" title="Add Box" onClick={() => addPrimitive('box')}>
           <Box size={20} />
         </button>
         <div className="toolbar-divider" />
-        <button className="btn btn-icon" title="Push/Pull (P)" onClick={() => {
-          if (selectedId) {
-            setSceneObjects(prev => prev.map(o => {
-              if (o.id === selectedId) {
-                // simple push/pull emulation
-                const newScale = [...o.scale];
-                newScale[1] *= 1.2;
-                return { ...o, scale: newScale };
-              }
-              return o;
-            }));
-          }
-        }}>
+        <button className={`btn btn-icon ${toolMode === 'extrude' ? 'active' : ''}`} title="Push/Pull (P) — select a Face first" onClick={() => setToolMode('extrude')}>
           <Plus size={20} />
         </button>
-        <button className="btn btn-icon" title="Offset (F)" onClick={() => {
+        <button className="btn btn-icon" title="Duplicate (D)" onClick={() => {
           if (selectedId) {
-            setSceneObjects(prev => prev.map(o => {
-              if (o.id === selectedId) {
-                const newScale = [...o.scale];
-                newScale[0] *= 0.8;
-                newScale[2] *= 0.8;
-                return { ...o, scale: newScale };
-              }
-              return o;
-            }));
+            const src = sceneObjects.find(o => o.id === selectedId);
+            if (src) {
+              const id = uuidv4();
+              const dup = { ...src, id, position: [...src.position], label: `${src.label || src.type} (copy)` };
+              dup.position[0] += 1;
+              setSceneObjects(prev => [...prev, dup]);
+              setSelectedId(id);
+            }
           }
         }}>
-          <Layers size={20} />
+          <Copy size={20} />
         </button>
         <div className="toolbar-divider" />
-        <button className={`btn btn-icon ${transformMode === 'translate' ? 'active' : ''}`} title="Move (M)" onClick={() => setTransformMode('translate')}>
+        <button className={`btn btn-icon ${transformMode === 'translate' && toolMode === 'select' ? 'active' : ''}`} title="Move (M)" onClick={() => { setToolMode('select'); setTransformMode('translate'); }}>
           <Move size={20} />
         </button>
-        <button className={`btn btn-icon ${transformMode === 'rotate' ? 'active' : ''}`} title="Rotate (Q)" onClick={() => setTransformMode('rotate')}>
+        <button className={`btn btn-icon ${transformMode === 'rotate' && toolMode === 'select' ? 'active' : ''}`} title="Rotate (Q)" onClick={() => { setToolMode('select'); setTransformMode('rotate'); }}>
           <RotateCcw size={20} />
         </button>
-        <button className={`btn btn-icon ${transformMode === 'scale' ? 'active' : ''}`} title="Scale (S)" onClick={() => setTransformMode('scale')}>
+        <button className={`btn btn-icon ${transformMode === 'scale' && toolMode === 'select' ? 'active' : ''}`} title="Scale (S)" onClick={() => { setToolMode('select'); setTransformMode('scale'); }}>
           <Maximize size={20} />
         </button>
         <div className="toolbar-divider" />
-        <button className="btn btn-icon" title="Tape Measure (T)">
+        <button className={`btn btn-icon ${toolMode === 'tape' ? 'active' : ''}`} title="Tape Measure (T)" onClick={() => { setToolMode('tape'); setTempStart(null); }}>
           <Ruler size={20} />
         </button>
-        <button className="btn btn-icon" title="Text">
+        <button className={`btn btn-icon ${toolMode === 'text' ? 'active' : ''}`} title="Text" onClick={() => setToolMode('text')}>
           <Type size={20} />
         </button>
-        <div className="toolbar-divider" style={{ marginTop: 'auto' }} />
-        <button className="btn btn-icon" title="Orbit (O)">
-          <RotateCcw size={20} />
-        </button>
       </div>
+
+      {/* Tool mode indicator */}
+      {toolMode !== 'select' && (
+        <div style={{ position: 'fixed', bottom: 16, left: '50%', transform: 'translateX(-50%)', background: 'rgba(0,0,0,0.8)', color: '#fff', padding: '8px 20px', borderRadius: 20, fontSize: '0.85rem', zIndex: 100, pointerEvents: 'none' }}>
+          🛠️ Active: <strong>{toolMode.toUpperCase()}</strong> {tempStart ? '— click second point' : '— click to start'} &nbsp;(Press Escape to cancel)
+        </div>
+      )}
 
       {/* ---- Sidebar ---- */}
       <div className="sidebar glass">
@@ -760,6 +847,7 @@ export default function App() {
               )}
             </div>
           ))}
+
           {isLoading && (
             <div className="chat-message ai">
               <div className="message-bubble">
@@ -922,7 +1010,7 @@ export default function App() {
           shadows={{ type: THREE.PCFShadowMap }}
           gl={{ preserveDrawingBuffer: true, antialias: true }} 
           dpr={[1, 2]} 
-          onPointerMissed={() => setSelectedId(null)} 
+          onPointerMissed={() => { if (toolMode === 'select') setSelectedId(null); }} 
           onPointerDown={handleScenePointerDown}
         >
           <color attach="background" args={['#f3f4f6']} />
