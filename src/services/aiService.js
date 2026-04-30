@@ -83,7 +83,7 @@ RESPONSE FORMAT (Strict JSON Object):
 }
 `;
 
-export async function callAI(provider, config, userPrompt, sceneContext = "The scene is currently empty.") {
+export async function callAI(provider, config, userPrompt, sceneContext = "The scene is currently empty.", imageUrl = null) {
   const { apiKey, baseUrl, model } = config;
   const fullSystemPrompt = SYSTEM_PROMPT.replace('{scene_context}', sceneContext);
 
@@ -95,7 +95,8 @@ export async function callAI(provider, config, userPrompt, sceneContext = "The s
         apiKey,
         model || DEFAULT_MODELS[provider],
         userPrompt,
-        fullSystemPrompt
+        fullSystemPrompt,
+        imageUrl
       );
     case PROVIDERS.OPENROUTER:
       return await callOpenAICompatible(
@@ -103,21 +104,24 @@ export async function callAI(provider, config, userPrompt, sceneContext = "The s
         apiKey,
         model || DEFAULT_MODELS[PROVIDERS.OPENROUTER],
         userPrompt,
-        fullSystemPrompt
+        fullSystemPrompt,
+        imageUrl
       );
     case PROVIDERS.GEMINI:
       return await callGemini(
         apiKey,
         model || DEFAULT_MODELS[PROVIDERS.GEMINI],
         userPrompt,
-        fullSystemPrompt
+        fullSystemPrompt,
+        imageUrl
       );
     case PROVIDERS.OLLAMA:
       return await callOllama(
         baseUrl || 'http://localhost:11434',
         model || DEFAULT_MODELS[PROVIDERS.OLLAMA],
         userPrompt,
-        fullSystemPrompt
+        fullSystemPrompt,
+        imageUrl
       );
     case PROVIDERS.ANTHROPIC:
       return await callAnthropic(
@@ -131,7 +135,7 @@ export async function callAI(provider, config, userPrompt, sceneContext = "The s
   }
 }
 
-async function callOpenAICompatible(url, key, model, prompt, systemPrompt) {
+async function callOpenAICompatible(url, key, model, prompt, systemPrompt, imageUrl) {
   if (!key) throw new Error('API Key is missing. Please enter your OpenAI key in Settings.');
 
   const headers = {
@@ -144,6 +148,13 @@ async function callOpenAICompatible(url, key, model, prompt, systemPrompt) {
     headers['X-Title'] = 'Lakar CAD';
   }
 
+  const userContent = imageUrl 
+    ? [
+        { type: 'text', text: prompt },
+        { type: 'image_url', image_url: { url: imageUrl } }
+      ]
+    : prompt;
+
   const response = await fetch(`${url}/chat/completions`, {
     method: 'POST',
     headers: headers,
@@ -151,7 +162,7 @@ async function callOpenAICompatible(url, key, model, prompt, systemPrompt) {
       model: model,
       messages: [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: prompt }
+        { role: 'user', content: userContent }
       ],
       response_format: { type: "json_object" }
     })
@@ -171,18 +182,29 @@ async function callOpenAICompatible(url, key, model, prompt, systemPrompt) {
   return JSON.parse(content);
 }
 
-async function callOllama(url, model, prompt, systemPrompt) {
+async function callOllama(url, model, prompt, systemPrompt, imageUrl) {
   let response;
   try {
+    // Note: Ollama expects images as an array of base64 strings in the 'images' field
+    const requestBody = {
+      model: model,
+      prompt: `${systemPrompt}\n\nUser request: ${prompt}\n\nRespond with ONLY valid JSON:`,
+      stream: false,
+      format: 'json'
+    };
+    
+    if (imageUrl) {
+      // Strip the data:image/jpeg;base64, prefix
+      const base64Data = imageUrl.split(',')[1];
+      if (base64Data) {
+        requestBody.images = [base64Data];
+      }
+    }
+
     response = await fetch(`${url}/api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: model,
-        prompt: `${systemPrompt}\n\nUser request: ${prompt}\n\nRespond with ONLY valid JSON:`,
-        stream: false,
-        format: 'json'
-      })
+      body: JSON.stringify(requestBody)
     });
   } catch (e) {
     throw new Error(`Cannot connect to Ollama at ${url}. Is Ollama running? (${e.message})`);
@@ -241,24 +263,41 @@ async function callAnthropic(key, model, prompt, systemPrompt) {
   return JSON.parse(content);
 }
 
-async function callGemini(key, model, prompt, systemPrompt) {
+async function callGemini(key, model, prompt, systemPrompt, imageUrl) {
   if (!key) throw new Error('API Key is missing. Please enter your Gemini key in Settings.');
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: systemPrompt }] },
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          temperature: 0.2
+  // Extract base64 and mime type if image exists
+  let parts = [{ text: prompt }];
+  
+  if (imageUrl) {
+    const matches = imageUrl.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
+    if (matches && matches.length === 3) {
+      parts.push({
+        inline_data: {
+          mime_type: matches[1],
+          data: matches[2]
         }
-      })
+      });
     }
-  );
+  }
+
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      system_instruction: {
+        parts: [{ text: systemPrompt }]
+      },
+      contents: [{
+        role: "user",
+        parts: parts
+      }],
+      generationConfig: {
+        response_mime_type: "application/json",
+        temperature: 0.2
+      }
+    })
+  });
 
   if (!response.ok) {
     const errorText = await response.text();

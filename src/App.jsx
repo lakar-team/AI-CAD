@@ -1,10 +1,14 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, Grid, Environment, GizmoHelper, GizmoViewport, ContactShadows, PerspectiveCamera, TransformControls, Gltf } from '@react-three/drei';
-import { Send, Hexagon, Check, X, Trash2, Settings, Download, Upload, Box, MousePointer2, Plus, ChevronDown, Copy, Move, RotateCcw, Maximize, PackagePlus } from 'lucide-react';
+import { Send, Hexagon, Check, X, Trash2, Settings, Download, Upload, Box, MousePointer2, Plus, ChevronDown, Copy, Move, RotateCcw, Maximize, PackagePlus, Eye, Layers, Library } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
+import { OBJExporter } from 'three/examples/jsm/exporters/OBJExporter.js';
+import { STLExporter } from 'three/examples/jsm/exporters/STLExporter.js';
+import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
+import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 
 import { PROVIDERS, PROVIDER_LABELS, DEFAULT_MODELS, callAI } from './services/aiService';
 import { getGeometryFromTool, serializeForSave, deserializeFromSave, getAnchorPoints } from './services/geometryEngine';
@@ -30,6 +34,22 @@ const ScaleReference = () => (
     </mesh>
   </group>
 );
+
+// External Model Sub-components
+const ObjModel = ({ url }) => {
+  const obj = useLoader(OBJLoader, url);
+  const cloned = useMemo(() => obj.clone(), [obj]);
+  return <primitive object={cloned} />;
+};
+
+const StlModel = ({ url }) => {
+  const geom = useLoader(STLLoader, url);
+  return (
+    <mesh geometry={geom}>
+      <meshStandardMaterial color="#cccccc" />
+    </mesh>
+  );
+};
 
 // 3D Object Component
 const SceneObject = ({ obj, isGhost = false, onSelect, isSelected, setSelectedMesh }) => {
@@ -80,15 +100,17 @@ const SceneObject = ({ obj, isGhost = false, onSelect, isSelected, setSelectedMe
       ))}
 
       {obj.type === 'external_model' ? (
-        <>
-          <Gltf src={obj.url} castShadow receiveShadow />
+        <React.Suspense fallback={<mesh><boxGeometry args={[0.5,0.5,0.5]}/><meshBasicMaterial color="gray" wireframe/></mesh>}>
+          {obj.ext === 'obj' ? <ObjModel url={obj.url} /> : 
+           obj.ext === 'stl' ? <StlModel url={obj.url} /> : 
+           <Gltf src={obj.url} castShadow receiveShadow />}
           {isSelected && (
             <mesh rotation={[Math.PI / 2, 0, 0]}>
               <ringGeometry args={[1, 1.1, 32]} />
               <meshBasicMaterial color="#3b82f6" />
             </mesh>
           )}
-        </>
+        </React.Suspense>
       ) : (
         <mesh>
           {obj.type === 'box' && <boxGeometry args={obj.size} />}
@@ -176,6 +198,9 @@ const MainScene = ({ sceneObjects, setSceneObjects, ghostObject, selectedId, set
           object={selectedMesh}
           mode={transformMode}
           onMouseUp={onGizmoChange}
+          translationSnap={0.1}
+          rotationSnap={Math.PI / 12} // 15 degrees
+          scaleSnap={0.1}
         />
       )}
 
@@ -199,6 +224,8 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [transformMode, setTransformMode] = useState('translate'); // 'translate', 'rotate', 'scale'
+  const [visionEnabled, setVisionEnabled] = useState(false);
+  const [isLibraryOpen, setIsLibraryOpen] = useState(false);
   const sceneRef = useRef();
 
   // --- Multi-AI Profile System ---
@@ -287,8 +314,8 @@ export default function App() {
   }, [sceneObjects, selectedId]);
 
   // --- Send Message ---
-  const handleSend = async () => {
-    const text = inputValue.trim();
+  const handleSend = async (overrideText = null) => {
+    const text = (typeof overrideText === 'string' ? overrideText : inputValue).trim();
     if (!text) return;
 
     // Validate config
@@ -304,8 +331,17 @@ export default function App() {
     setIsLoading(true);
 
     try {
+      let imageUrl = null;
+      if (visionEnabled) {
+        const canvas = document.querySelector('canvas');
+        if (canvas) {
+          imageUrl = canvas.toDataURL('image/jpeg', 0.8);
+          setVisionEnabled(false); // Disable after sending one
+        }
+      }
+
       const sceneContext = getSceneContext();
-      const aiResponse = await callAI(activeProfile.provider, activeProfile, text, sceneContext);
+      const aiResponse = await callAI(activeProfile.provider, activeProfile, text, sceneContext, imageUrl);
 
       if (!aiResponse) {
         throw new Error('AI did not return a valid response. Try rephrasing your request.');
@@ -459,6 +495,34 @@ export default function App() {
     );
   };
 
+  const exportOBJ = () => {
+    if (!sceneRef.current) return;
+    const exporter = new OBJExporter();
+    const result = exporter.parse(sceneRef.current);
+    const blob = new Blob([result], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `cad_export_${Date.now()}.obj`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setChatHistory(prev => [...prev, { id: Date.now(), role: 'ai', text: '📦 Exported as OBJ.' }]);
+  };
+
+  const exportSTL = () => {
+    if (!sceneRef.current) return;
+    const exporter = new STLExporter();
+    const result = exporter.parse(sceneRef.current);
+    const blob = new Blob([result], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `cad_export_${Date.now()}.stl`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setChatHistory(prev => [...prev, { id: Date.now(), role: 'ai', text: '📦 Exported as STL for 3D Printing.' }]);
+  };
+
   return (
     <div className="app-container">
       {/* ---- Sidebar ---- */}
@@ -518,10 +582,16 @@ export default function App() {
               placeholder="e.g. Create a 2m wide table"
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-              disabled={isLoading}
+              onKeyDown={(e) => e.key === 'Enter' && handleSend()}
             />
-            <button className="btn btn-primary" onClick={handleSend} disabled={isLoading}>
+            <div 
+              className={`vision-toggle ${visionEnabled ? 'active' : ''}`} 
+              onClick={() => setVisionEnabled(!visionEnabled)} 
+              title="Include Screenshot Context (Requires Vision Model)"
+            >
+              <Eye size={18} />
+            </div>
+            <button className="btn btn-primary" onClick={handleSend} disabled={isLoading || !inputValue.trim()}>
               <Send size={18} />
             </button>
           </div>
@@ -539,9 +609,17 @@ export default function App() {
               <Upload size={18} />
               <input type="file" accept=".json" hidden onChange={loadProject} />
             </label>
-            <button className="btn btn-icon" title="Export as GLTF (3D)" onClick={exportGLTF}>
-              <Box size={18} />
-            </button>
+            <div style={{ display: 'flex', gap: '4px', borderLeft: '1px solid rgba(0,0,0,0.1)', paddingLeft: '8px', marginLeft: '4px' }}>
+              <button className="btn btn-icon" title="Export GLTF" onClick={exportGLTF}>
+                <Box size={18} />
+              </button>
+              <button className="btn btn-icon" title="Export OBJ" onClick={exportOBJ} style={{ fontSize: '0.7rem', fontWeight: 'bold' }}>
+                OBJ
+              </button>
+              <button className="btn btn-icon" title="Export STL (3D Print)" onClick={exportSTL} style={{ fontSize: '0.7rem', fontWeight: 'bold' }}>
+                STL
+              </button>
+            </div>
           </div>
           <div className="toolbar-group">
             <button 
@@ -568,19 +646,24 @@ export default function App() {
           </div>
 
           <div className="toolbar-group">
-            <label className="btn btn-icon" title="Import 3D Model (GLB/GLTF)" style={{ cursor: 'pointer' }}>
+            <button className="btn btn-icon" title="Asset Library" onClick={() => setIsLibraryOpen(true)}>
+              <Library size={18} />
+            </button>
+            <label className="btn btn-icon" title="Import Local 3D Model (.glb, .obj, .stl)" style={{ cursor: 'pointer' }}>
               <PackagePlus size={18} />
               <input 
                 type="file" 
-                accept=".glb,.gltf" 
+                accept=".glb,.gltf,.obj,.stl" 
                 hidden 
                 onChange={(e) => {
                   const file = e.target.files[0];
                   if (file) {
+                    const ext = file.name.split('.').pop().toLowerCase();
                     const url = URL.createObjectURL(file);
                     const newObj = {
                       id: `model_${uuidv4().slice(0, 8)}`,
                       type: 'external_model',
+                      ext: ext,
                       url: url,
                       position: [0, 0, 0],
                       rotation: [0, 0, 0],
@@ -606,7 +689,7 @@ export default function App() {
           </div>
         </div>
 
-        <Canvas shadows dpr={[1, 2]} onPointerMissed={() => setSelectedId(null)}>
+        <Canvas shadows gl={{ preserveDrawingBuffer: true }} dpr={[1, 2]} onPointerMissed={() => setSelectedId(null)}>
           <color attach="background" args={['#f3f4f6']} />
           <PerspectiveCamera makeDefault position={[6, 5, 6]} fov={45} />
           <ambientLight intensity={1.2} />
@@ -627,6 +710,119 @@ export default function App() {
             <GizmoViewport axisColors={['#ef4444', '#10b981', '#3b82f6']} labelColor="black" />
           </GizmoHelper>
         </Canvas>
+      </div>
+
+      {/* ---- Right Sidebar (Outliner & Property Panel) ---- */}
+      <div className="right-sidebar">
+        <div className="panel-header">
+          <Layers size={18} /> Outliner
+        </div>
+        <div className="outliner-list">
+          {sceneObjects.map(obj => (
+            <div 
+              key={obj.id} 
+              className={`outliner-item ${selectedId === obj.id ? 'active' : ''}`}
+              onClick={() => setSelectedId(obj.id)}
+            >
+              <Box size={14} />
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {obj.label || obj.type}
+              </span>
+            </div>
+          ))}
+          {sceneObjects.length === 0 && (
+            <div style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem', padding: '10px' }}>Empty scene</div>
+          )}
+        </div>
+
+        {selectedId && (
+          <div className="property-panel">
+            <div style={{ fontWeight: 600, borderBottom: '1px solid rgba(0,0,0,0.05)', paddingBottom: '8px' }}>
+              Properties
+            </div>
+            {(() => {
+              const sel = sceneObjects.find(o => o.id === selectedId);
+              if (!sel) return null;
+              
+              const updateProp = (field, idx, val) => {
+                const num = parseFloat(val);
+                if (isNaN(num)) return;
+                setSceneObjects(prev => prev.map(o => {
+                  if (o.id !== selectedId) return o;
+                  const newArr = [...(o[field] || [0,0,0])];
+                  newArr[idx] = num;
+                  return { ...o, [field]: newArr };
+                }));
+              };
+
+              return (
+                <>
+                  <div className="prop-row">
+                    <span className="prop-label">Position</span>
+                    <div className="prop-inputs">
+                      <input type="number" step="0.1" className="prop-input" value={sel.position?.[0] ?? 0} onChange={(e) => updateProp('position', 0, e.target.value)} title="X" />
+                      <input type="number" step="0.1" className="prop-input" value={sel.position?.[1] ?? 0} onChange={(e) => updateProp('position', 1, e.target.value)} title="Y" />
+                      <input type="number" step="0.1" className="prop-input" value={sel.position?.[2] ?? 0} onChange={(e) => updateProp('position', 2, e.target.value)} title="Z" />
+                    </div>
+                  </div>
+                  <div className="prop-row">
+                    <span className="prop-label">Rotation</span>
+                    <div className="prop-inputs">
+                      <input type="number" step="15" className="prop-input" value={sel.rotation?.[0] ?? 0} onChange={(e) => updateProp('rotation', 0, e.target.value)} title="X" />
+                      <input type="number" step="15" className="prop-input" value={sel.rotation?.[1] ?? 0} onChange={(e) => updateProp('rotation', 1, e.target.value)} title="Y" />
+                      <input type="number" step="15" className="prop-input" value={sel.rotation?.[2] ?? 0} onChange={(e) => updateProp('rotation', 2, e.target.value)} title="Z" />
+                    </div>
+                  </div>
+                  <div className="prop-row">
+                    <span className="prop-label">Scale</span>
+                    <div className="prop-inputs">
+                      <input type="number" step="0.1" className="prop-input" value={sel.scale?.[0] ?? 1} onChange={(e) => updateProp('scale', 0, e.target.value)} title="X" />
+                      <input type="number" step="0.1" className="prop-input" value={sel.scale?.[1] ?? 1} onChange={(e) => updateProp('scale', 1, e.target.value)} title="Y" />
+                      <input type="number" step="0.1" className="prop-input" value={sel.scale?.[2] ?? 1} onChange={(e) => updateProp('scale', 2, e.target.value)} title="Z" />
+                    </div>
+                  </div>
+
+                  {/* Targeted AI Command */}
+                  <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid rgba(0,0,0,0.05)' }}>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '8px', color: 'var(--color-accent)' }}>
+                      Targeted AI Instruction
+                    </div>
+                    <div className="chat-input-area" style={{ padding: 0 }}>
+                      <input 
+                        type="text" 
+                        className="input-field" 
+                        placeholder={`e.g. Make it red`} 
+                        id="targeted-ai-input"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            const val = e.target.value;
+                            if (val.trim()) {
+                              handleSend(`[Targeted instruction for ${sel.label || sel.id}]: ${val}`);
+                              e.target.value = '';
+                            }
+                          }
+                        }}
+                      />
+                      <button 
+                        className="btn btn-primary" 
+                        onClick={() => {
+                          const input = document.getElementById('targeted-ai-input');
+                          if (input && input.value.trim()) {
+                            handleSend(`[Targeted instruction for ${sel.label || sel.id}]: ${input.value}`);
+                            input.value = '';
+                          }
+                        }}
+                        disabled={isLoading}
+                      >
+                        <Send size={14} />
+                      </button>
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        )}
       </div>
 
       {/* ---- Settings Modal ---- */}
@@ -813,12 +1009,45 @@ export default function App() {
               </div>
             ))}
 
-            <button className="btn btn-primary" onClick={addProfile} style={{ width: '100%' }}>
-              <Plus size={16} /> Add New Profile
-            </button>
+            <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+              <button className="btn btn-primary" onClick={addProfile}><Plus size={16} /> Add Profile</button>
+            </div>
+          </div>
+        </div>
+      )}
 
-            <div className="modal-footer">
-              <button className="btn btn-primary" onClick={() => setIsSettingsOpen(false)}>Done</button>
+      {/* ---- Asset Library Modal ---- */}
+      {isLibraryOpen && (
+        <div className="modal-overlay" onClick={() => setIsLibraryOpen(false)}>
+          <div className="modal-content glass" onClick={(e) => e.stopPropagation()} style={{ width: '600px', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
+            <div className="modal-header">
+              <h2>3D Asset Library</h2>
+              <button className="btn btn-icon" onClick={() => setIsLibraryOpen(false)}><X size={18} /></button>
+            </div>
+            <div style={{ padding: '16px', flex: 1, overflowY: 'auto' }}>
+              <p style={{ color: 'var(--color-text-muted)', marginBottom: '16px' }}>
+                Browse curated architectural assets. Direct API integration for Sketchfab requires an individual API key. For now, you can upload your own `.glb`, `.obj`, or `.stl` files using the Import button.
+              </p>
+              
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
+                {['Basic Chair', 'Table', 'Door Frame', 'Window Frame', 'Staircase'].map((item, i) => (
+                  <div key={i} style={{ border: '1px solid var(--border-glass)', borderRadius: '8px', padding: '12px', textAlign: 'center', background: 'rgba(0,0,0,0.02)' }}>
+                    <div style={{ height: '80px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-muted)' }}>
+                      <Box size={32} />
+                    </div>
+                    <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '8px' }}>{item}</div>
+                    <button 
+                      className="btn btn-secondary" 
+                      style={{ width: '100%' }}
+                      onClick={() => {
+                        setChatHistory(prev => [...prev, { id: Date.now(), role: 'ai', text: `⚠️ API Key required to download "${item}". Please use manual import.` }]);
+                      }}
+                    >
+                      Insert
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
