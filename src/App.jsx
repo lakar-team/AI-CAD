@@ -52,7 +52,7 @@ const StlModel = ({ url }) => {
 };
 
 // 3D Object Component
-const SceneObject = ({ obj, isSelected, isGhost, onSelect, onAnchorClick, grabAnchor, setSelectedMesh }) => {
+const SceneObject = ({ obj, isSelected, isGhost, onSelect, onAnchorClick, grabAnchor, setSelectedMesh, wireframeMode }) => {
   const meshRef = useRef();
 
   useEffect(() => {
@@ -136,7 +136,7 @@ const SceneObject = ({ obj, isSelected, isGhost, onSelect, onAnchorClick, grabAn
             color={isSelected ? '#3b82f6' : (obj.operation ? obj.color : obj.color)}
             transparent={isGhost || !!obj.operation}
             opacity={isGhost ? 0.35 : (obj.operation ? 0.7 : 1)}
-            wireframe={isGhost}
+            wireframe={isGhost || wireframeMode}
             roughness={0.65}
             metalness={0.05}
             emissive={isSelected ? '#1e3a8a' : '#000000'}
@@ -150,7 +150,7 @@ const SceneObject = ({ obj, isSelected, isGhost, onSelect, onAnchorClick, grabAn
 };
 
 // Main 3D Scene
-const MainScene = ({ sceneObjects, setSceneObjects, ghostObject, selectedId, setSelectedId, transformMode, sceneRef, handleAnchorClick, grabAnchor, setSelectedMesh }) => {
+const MainScene = ({ sceneObjects, setSceneObjects, ghostObject, selectedId, setSelectedId, transformMode, sceneRef, handleAnchorClick, grabAnchor, setSelectedMesh, selectedMesh, wireframeMode }) => {
   const onGizmoChange = () => {
     if (!selectedMesh || !selectedId) return;
 
@@ -187,17 +187,17 @@ const MainScene = ({ sceneObjects, setSceneObjects, ghostObject, selectedId, set
       <ContactShadows position={[0, 0, 0]} opacity={0.35} scale={30} blur={2.5} far={5} />
       <ScaleReference />
 
-      {sceneObjects.map(obj => (
-        <SceneObject
-          key={obj.id}
-          obj={obj}
-          isSelected={selectedId === obj.id}
-          onSelect={setSelectedId}
-          onAnchorClick={handleAnchorClick}
-          grabAnchor={grabAnchor}
-          setSelectedMesh={setSelectedMesh}
-        />
-      ))}
+      {sceneObjects.map(obj =>          <SceneObject 
+            key={obj.id} 
+            obj={obj} 
+            isSelected={selectedId === obj.id} 
+            onSelect={setSelectedId}
+            onAnchorClick={handleAnchorClick}
+            grabAnchor={grabAnchor}
+            setSelectedMesh={setSelectedMesh}
+            wireframeMode={wireframeMode}
+          />
+      )}
 
       {ghostObject && (
         ghostObject.type === 'pattern_group'
@@ -245,6 +245,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [grabAnchor, setGrabAnchor] = useState(null); // { objId, anchorIdx, worldPos }
   const [selectedMesh, setSelectedMesh] = useState(null);
+  const [wireframeMode, setWireframeMode] = useState(false);
   const sceneRef = useRef();
 
   // --- Multi-AI Profile System ---
@@ -867,6 +868,13 @@ export default function App() {
           </div>
 
           <div className="toolbar-group">
+            <button 
+              className={`btn btn-icon ${wireframeMode ? 'active' : ''}`} 
+              title="Wireframe View (W)" 
+              onClick={() => setWireframeMode(!wireframeMode)}
+            >
+              <Hexagon size={18} />
+            </button>
             <button className="btn btn-icon" title="Asset Library" onClick={() => setIsLibraryOpen(true)}>
               <Library size={18} />
             </button>
@@ -910,7 +918,13 @@ export default function App() {
           </div>
         </div>
 
-        <Canvas shadows gl={{ preserveDrawingBuffer: true }} dpr={[1, 2]} onPointerMissed={() => setSelectedId(null)} onPointerDown={handleScenePointerDown}>
+        <Canvas 
+          shadows={{ type: THREE.PCFShadowMap }}
+          gl={{ preserveDrawingBuffer: true, antialias: true }} 
+          dpr={[1, 2]} 
+          onPointerMissed={() => setSelectedId(null)} 
+          onPointerDown={handleScenePointerDown}
+        >
           <color attach="background" args={['#f3f4f6']} />
           <PerspectiveCamera makeDefault position={[6, 5, 6]} fov={45} />
           <ambientLight intensity={1.2} />
@@ -928,6 +942,8 @@ export default function App() {
             handleAnchorClick={handleAnchorClick}
             grabAnchor={grabAnchor}
             setSelectedMesh={setSelectedMesh}
+            selectedMesh={selectedMesh}
+            wireframeMode={wireframeMode}
           />
 
           <GizmoHelper alignment="bottom-right" margin={[80, 80]}>
