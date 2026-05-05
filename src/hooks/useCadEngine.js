@@ -6,66 +6,50 @@ import {
   addEdge,
   moveVertex,
   deleteEntity,
+  extrudeFace,
   getInference,
 } from '../services/geometryEngine';
 
-/**
- * useCadEngine — all SketchUp tool logic lives here.
- * Tools: select, line, move, eraser, tape
- */
 export function useCadEngine() {
   const [scene, setScene]           = useState(createScene);
   const [activeTool, setActiveTool] = useState('select');
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [inference, setInference]   = useState(null);
   const [measurements, setMeasurements] = useState('');
+  const [hoveredFaceId, setHoveredFaceId] = useState(null);
+  const [pushPullDepth, setPushPullDepth] = useState(null); // live preview depth
 
-  // Per-tool transient state (refs to avoid stale closure issues)
-  const lineStartRef   = useRef(null); // THREE.Vector3
-  const lineStartVId   = useRef(null); // vertex id of line start
-  const moveStartRef   = useRef(null); // THREE.Vector3
-  const tapeStartRef   = useRef(null); // THREE.Vector3
-  const ghostEndRef    = useRef(null); // THREE.Vector3 (for rendering)
+  // Transient drawing state in refs (avoids stale closures)
+  const lineStartPt  = useRef(null); // THREE.Vector3 of first click
+  const lineStartVId = useRef(null); // vertex id of first click
+  const ghostEnd     = useRef(null); // THREE.Vector3 current mouse pos
+  const tapeStart    = useRef(null);
+  const moveStart    = useRef(null);
+  const pushPullFace = useRef(null); // faceId being extruded
+  const pushPullOriginY = useRef(null); // Y coordinate when push/pull started
 
-  const [tick, setTick] = useState(0); // force re-render after ref mutations
+  const [, forceUpdate] = useState(0);
+  const tick = () => forceUpdate(n => n + 1);
 
-  const forceTick = () => setTick(t => t + 1);
-
-  // ─── Keyboard shortcuts ──────────────────────────────────
+  // ── Keyboard shortcuts ────────────────────────────────────
   useEffect(() => {
     const onKey = (e) => {
-      if (e.target.tagName === 'INPUT') return; // don't hijack text inputs
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       switch (e.key.toLowerCase()) {
         case 'escape':
-          resetToolState();
-          setActiveTool('select');
-          break;
         case ' ':
           e.preventDefault();
-          resetToolState();
-          setActiveTool('select');
-          break;
-        case 'l':
-          resetToolState();
-          setActiveTool('line');
-          break;
-        case 'm':
-          resetToolState();
-          setActiveTool('move');
-          break;
-        case 'e':
-          resetToolState();
-          setActiveTool('eraser');
-          break;
-        case 't':
-          resetToolState();
-          setActiveTool('tape');
-          break;
+          reset(); setActiveTool('select'); break;
+        case 'l': reset(); setActiveTool('line'); break;
+        case 'p': reset(); setActiveTool('pushpull'); break;
+        case 'm': reset(); setActiveTool('move'); break;
+        case 'e': reset(); setActiveTool('eraser'); break;
+        case 't': reset(); setActiveTool('tape'); break;
         case 'delete':
         case 'backspace':
           setScene(prev => {
             let s = prev;
-            selectedIds.forEach(id => { s = deleteEntity(s, id); });
+            for (const id of selectedIds) s = deleteEntity(s, id);
             return s;
           });
           setSelectedIds(new Set());
@@ -76,81 +60,51 @@ export function useCadEngine() {
     return () => window.removeEventListener('keydown', onKey);
   }, [selectedIds]);
 
-  function resetToolState() {
-    lineStartRef.current  = null;
+  function reset() {
+    lineStartPt.current   = null;
     lineStartVId.current  = null;
-    moveStartRef.current  = null;
-    tapeStartRef.current  = null;
-    ghostEndRef.current   = null;
+    ghostEnd.current      = null;
+    tapeStart.current     = null;
+    moveStart.current     = null;
+    pushPullFace.current  = null;
+    pushPullOriginY.current = null;
     setInference(null);
     setMeasurements('');
-    forceTick();
+    setPushPullDepth(null);
+    tick();
   }
 
-  // ─── Pointer move ────────────────────────────────────────
+  // ── Pointer MOVE ─────────────────────────────────────────
   const handlePointerMove = useCallback((rawPoint, currentScene) => {
     const inf = getInference(rawPoint, currentScene);
     setInference(inf);
 
-    if ((activeTool === 'line' || activeTool === 'tape') && lineStartRef.current) {
-      ghostEndRef.current = inf.point.clone();
-      const dist = lineStartRef.current.distanceTo(inf.point);
-      setMeasurements(dist.toFixed(3) + ' m');
-      forceTick();
+    if (activeTool === 'line' && lineStartPt.current) {
+      ghostEnd.current = inf.point.clone();
+      const d = lineStartPt.current.distanceTo(inf.point);
+      setMeasurements(d.toFixed(3) + ' m');
+      tick();
+    }
+
+    if (activeTool === 'tape' && tapeStart.current) {
+      ghostEnd.current = inf.point.clone();
+      const d = tapeStart.current.distanceTo(inf.point);
+      setMeasurements(d.toFixed(3) + ' m');
+      tick();
     }
   }, [activeTool]);
 
-  // ─── Pointer down ────────────────────────────────────────
+  // Face hover (called from Viewport with the faceId under cursor)
+  const handleFaceHover = useCallback((faceId) => {
+    setHoveredFaceId(faceId);
+  }, []);
+
+  // ── Pointer DOWN ─────────────────────────────────────────
   const handlePointerDown = useCallback((rawPoint, currentScene) => {
     const inf = getInference(rawPoint, currentScene);
 
-    if (activeTool === 'line') {
-      if (!lineStartRef.current) {
-        // First click — place start point
-        lineStartRef.current = inf.point.clone();
-        let s = currentScene;
-        s = addVertex(s, inf.point.x, inf.point.y, inf.point.z);
-        lineStartVId.current = s._added.id;
-        setScene(s);
-      } else {
-        // Second click — place end point, draw edge
-        setScene(prev => {
-          let s = prev;
-          // Reuse snapped vertex or create new
-          let endVId;
-          if (inf.type === 'endpoint' && inf.snapId && prev.vertices[inf.snapId]) {
-            endVId = inf.snapId;
-          } else {
-            s = addVertex(s, inf.point.x, inf.point.y, inf.point.z);
-            endVId = s._added.id;
-          }
-          s = addEdge(s, lineStartVId.current, endVId);
-          return s;
-        });
-        // Chain: end of this line is start of next
-        lineStartRef.current = inf.point.clone();
-        ghostEndRef.current  = inf.point.clone();
-        setScene(prev => {
-          // Make sure end vertex exists or reuse snapped one
-          if (inf.type === 'endpoint' && inf.snapId && prev.vertices[inf.snapId]) {
-            lineStartVId.current = inf.snapId;
-            return prev;
-          } else {
-            // find vertex closest to inf.point
-            for (const v of Object.values(prev.vertices)) {
-              const vp = new THREE.Vector3(v.x, v.y, v.z);
-              if (vp.distanceTo(inf.point) < 0.001) {
-                lineStartVId.current = v.id;
-                return prev;
-              }
-            }
-            const s = addVertex(prev, inf.point.x, inf.point.y, inf.point.z);
-            lineStartVId.current = s._added.id;
-            return s;
-          }
-        });
-        forceTick();
-      }
+    if (activeTool === 'select') {
+      setSelectedIds(inf.snapId ? new Set([inf.snapId]) : new Set());
 
     } else if (activeTool === 'eraser') {
       if (inf.snapId) {
@@ -159,89 +113,164 @@ export function useCadEngine() {
       }
 
     } else if (activeTool === 'tape') {
-      if (!tapeStartRef.current) {
-        tapeStartRef.current = inf.point.clone();
-        lineStartRef.current = inf.point.clone();
-        forceTick();
+      if (!tapeStart.current) {
+        tapeStart.current = inf.point.clone();
+        lineStartPt.current = inf.point.clone();
+        tick();
       } else {
-        const dist = tapeStartRef.current.distanceTo(inf.point);
-        setMeasurements(dist.toFixed(3) + ' m (tape)');
-        tapeStartRef.current = null;
-        lineStartRef.current = null;
-        ghostEndRef.current  = null;
-        forceTick();
+        const d = tapeStart.current.distanceTo(inf.point);
+        setMeasurements(d.toFixed(3) + ' m');
+        tapeStart.current = null;
+        lineStartPt.current = null;
+        ghostEnd.current = null;
+        tick();
       }
 
-    } else if (activeTool === 'select') {
-      if (inf.snapId) {
-        setSelectedIds(new Set([inf.snapId]));
+    } else if (activeTool === 'line') {
+      if (!lineStartPt.current) {
+        // First click: set start
+        let s = currentScene;
+        let vId;
+        if (inf.type === 'endpoint' && inf.snapId && currentScene.vertices[inf.snapId]) {
+          vId = inf.snapId;
+        } else {
+          const result = addVertex(s, inf.point.x, inf.point.y, inf.point.z);
+          s = result.scene;
+          vId = result.vertexId;
+        }
+        lineStartPt.current  = inf.point.clone();
+        lineStartVId.current = vId;
+        ghostEnd.current     = inf.point.clone();
+        setScene(s);
+        tick();
       } else {
-        setSelectedIds(new Set());
+        // Second click: draw edge, check for face closure
+        setScene(prev => {
+          let s = prev;
+          let endVId;
+
+          if (inf.type === 'endpoint' && inf.snapId && prev.vertices[inf.snapId]) {
+            endVId = inf.snapId;
+          } else {
+            const result = addVertex(s, inf.point.x, inf.point.y, inf.point.z);
+            s = result.scene;
+            endVId = result.vertexId;
+          }
+
+          const result = addEdge(s, lineStartVId.current, endVId);
+          s = result.scene;
+
+          // Chain: end becomes new start
+          lineStartPt.current  = inf.point.clone();
+          lineStartVId.current = endVId;
+          ghostEnd.current     = inf.point.clone();
+
+          return s;
+        });
+        setMeasurements('');
+        tick();
+      }
+
+    } else if (activeTool === 'pushpull') {
+      // Click on a face to start extruding
+      if (hoveredFaceId && !pushPullFace.current) {
+        pushPullFace.current    = hoveredFaceId;
+        pushPullOriginY.current = rawPoint.y;
+        tick();
+      } else if (pushPullFace.current) {
+        // Second click: commit extrusion
+        const depth = pushPullDepth || 0;
+        if (Math.abs(depth) > 0.001) {
+          setScene(prev => extrudeFace(prev, pushPullFace.current, depth));
+        }
+        pushPullFace.current    = null;
+        pushPullOriginY.current = null;
+        setPushPullDepth(null);
+        tick();
       }
 
     } else if (activeTool === 'move') {
-      if (!moveStartRef.current) {
-        moveStartRef.current = inf.point.clone();
-        forceTick();
+      if (!moveStart.current) {
+        moveStart.current = inf.point.clone();
+        tick();
       } else {
-        const delta = new THREE.Vector3().subVectors(inf.point, moveStartRef.current);
+        const delta = new THREE.Vector3().subVectors(inf.point, moveStart.current);
         setScene(prev => {
           let s = prev;
-          selectedIds.forEach(id => {
-            if (prev.vertices[id]) {
-              s = moveVertex(s, id, delta.x, delta.y, delta.z);
-            }
-          });
+          for (const id of selectedIds) {
+            if (prev.vertices[id]) s = moveVertex(s, id, delta.x, delta.y, delta.z);
+          }
           return s;
         });
-        moveStartRef.current = null;
-        forceTick();
+        moveStart.current = null;
+        tick();
       }
     }
-  }, [activeTool, selectedIds]);
+  }, [activeTool, hoveredFaceId, pushPullDepth, selectedIds]);
 
-  // ─── Measurements box: Enter key commits length ─────────
+  // Push/Pull live depth update (from viewport mouse Y delta)
+  const handlePushPullMove = useCallback((rawY) => {
+    if (activeTool === 'pushpull' && pushPullFace.current && pushPullOriginY.current !== null) {
+      const depth = rawY - pushPullOriginY.current;
+      setPushPullDepth(depth);
+      setMeasurements(Math.abs(depth).toFixed(3) + ' m');
+    }
+  }, [activeTool]);
+
+  // ── Measurements Enter ────────────────────────────────────
   const handleMeasurementsSubmit = useCallback((val) => {
     const num = parseFloat(val);
     if (isNaN(num) || num <= 0) return;
 
-    if (activeTool === 'line' && lineStartRef.current && ghostEndRef.current) {
-      const dir = new THREE.Vector3().subVectors(ghostEndRef.current, lineStartRef.current);
+    if (activeTool === 'line' && lineStartPt.current && ghostEnd.current) {
+      const dir = new THREE.Vector3()
+        .subVectors(ghostEnd.current, lineStartPt.current)
+        .normalize();
       if (dir.length() < 0.0001) return;
-      dir.normalize().multiplyScalar(num);
-      const endPoint = lineStartRef.current.clone().add(dir);
+      const endPt = lineStartPt.current.clone().add(dir.multiplyScalar(num));
 
       setScene(prev => {
         let s = prev;
-        s = addVertex(s, endPoint.x, endPoint.y, endPoint.z);
-        const endVId = s._added.id;
-        s = addEdge(s, lineStartVId.current, endVId);
-        // Prepare for next segment
-        lineStartRef.current = endPoint.clone();
-        s = addVertex(s, endPoint.x, endPoint.y, endPoint.z);
-        lineStartVId.current = s._added.id;
+        const r1 = addVertex(s, endPt.x, endPt.y, endPt.z);
+        s = r1.scene;
+        const r2 = addEdge(s, lineStartVId.current, r1.vertexId);
+        s = r2.scene;
+        lineStartPt.current  = endPt.clone();
+        lineStartVId.current = r1.vertexId;
+        ghostEnd.current     = endPt.clone();
         return s;
       });
-      ghostEndRef.current = null;
       setMeasurements('');
-      forceTick();
+      tick();
+    }
+
+    if (activeTool === 'pushpull' && pushPullFace.current) {
+      setScene(prev => extrudeFace(prev, pushPullFace.current, num));
+      pushPullFace.current = null;
+      setPushPullDepth(null);
+      setMeasurements('');
+      tick();
     }
   }, [activeTool]);
 
   return {
     scene,
     activeTool,
-    setActiveTool: (tool) => { resetToolState(); setActiveTool(tool); },
+    setActiveTool: (tool) => { reset(); setActiveTool(tool); },
     selectedIds,
     setSelectedIds,
     inference,
-    lineStart: lineStartRef.current,
-    ghostEnd: ghostEndRef.current,
+    lineStart: lineStartPt.current,
+    ghostEnd:  ghostEnd.current,
     measurements,
     setMeasurements,
+    hoveredFaceId,
+    pushPullDepth,
     handlePointerMove,
     handlePointerDown,
+    handleFaceHover,
+    handlePushPullMove,
     handleMeasurementsSubmit,
-    resetToolState,
+    reset,
   };
 }

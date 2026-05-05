@@ -8,7 +8,6 @@ import { useCadEngine } from './hooks/useCadEngine';
 import { serializeForAI } from './services/geometryEngine';
 import { callAI } from './services/aiService';
 
-// ─── Default AI config ─────────────────────────────────────────
 const DEFAULT_AI_CONFIG = {
   provider: 'ollama',
   model:    'llama3',
@@ -17,36 +16,34 @@ const DEFAULT_AI_CONFIG = {
 };
 
 export default function App() {
-  // ── CAD Engine ────────────────────────────────────────────────
   const {
     scene,
-    activeTool,
-    setActiveTool,
-    selectedIds,
-    setSelectedIds,
+    activeTool, setActiveTool,
+    selectedIds, setSelectedIds,
     inference,
-    lineStart,
-    ghostEnd,
-    measurements,
-    setMeasurements,
+    lineStart, ghostEnd,
+    measurements, setMeasurements,
+    hoveredFaceId,
+    pushPullDepth,
     handlePointerMove,
     handlePointerDown,
+    handleFaceHover,
     handleMeasurementsSubmit,
   } = useCadEngine();
 
-  // ── AI ────────────────────────────────────────────────────────
+  // ── AI ────────────────────────────────────────────────────
   const [aiConfig, setAiConfig] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('lakar_ai_config')) || DEFAULT_AI_CONFIG; }
+    try { return JSON.parse(localStorage.getItem('lakar_ai_v2')) || DEFAULT_AI_CONFIG; }
     catch { return DEFAULT_AI_CONFIG; }
   });
   const [chatHistory, setChatHistory] = useState([
-    { role: 'ai', text: 'Lakar CAD ready. I can read and manipulate the model. Configure your AI provider in the Settings panel below.' }
+    { role: 'ai', text: '👋 Lakar CAD ready.\n\n• Line (L): click to draw, closes → face auto-creates\n• Push/Pull (P): hover face → click → drag to extrude\n• Orbit: Middle mouse always\n• Configure AI in Settings panel below.' }
   ]);
   const [isAiLoading, setIsAiLoading] = useState(false);
 
   const updateAiConfig = (cfg) => {
     setAiConfig(cfg);
-    localStorage.setItem('lakar_ai_config', JSON.stringify(cfg));
+    localStorage.setItem('lakar_ai_v2', JSON.stringify(cfg));
   };
 
   const handleSendChat = useCallback(async (text) => {
@@ -55,7 +52,8 @@ export default function App() {
     try {
       const context = serializeForAI(scene);
       const response = await callAI(aiConfig.provider, aiConfig, text, context);
-      setChatHistory(prev => [...prev, { role: 'ai', text: response.message || JSON.stringify(response) }]);
+      const msg = response?.message || JSON.stringify(response);
+      setChatHistory(prev => [...prev, { role: 'ai', text: msg }]);
     } catch (err) {
       setChatHistory(prev => [...prev, { role: 'ai', text: `⚠️ ${err.message}` }]);
     } finally {
@@ -63,32 +61,28 @@ export default function App() {
     }
   }, [scene, aiConfig]);
 
-  // ── Pointer → pass current scene so inference is up-to-date ──
-  const onPointerMove = useCallback((pt) => handlePointerMove(pt, scene), [handlePointerMove, scene]);
-  const onPointerDown = useCallback((pt) => handlePointerDown(pt, scene), [handlePointerDown, scene]);
+  // ── Pointer passthrough (always pass live scene) ──────────
+  const onMove = useCallback((pt, s) => handlePointerMove(pt, s), [handlePointerMove]);
+  const onDown = useCallback((pt, s) => handlePointerDown(pt, s), [handlePointerDown]);
 
-  // ── Entity selection from Outliner ─────────────────────────
-  const handleOutlinerSelect = (id) => setSelectedIds(new Set([id]));
+  // Face interaction for Push/Pull
+  const onFaceDown = useCallback((faceId) => {
+    // Reuse handlePointerDown logic by passing a fake "face click"
+    // The push/pull logic in the hook responds to hoveredFaceId
+    handlePointerDown(new (require('three').Vector3)(0, 0, 0), scene);
+  }, [handlePointerDown, scene]);
 
-  // ── File ops (real save/load via JSON) ─────────────────────
+  // ── Save ─────────────────────────────────────────────────
   const handleSave = () => {
-    const data = JSON.stringify({ scene }, null, 2);
-    const blob = new Blob([data], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify(scene, null, 2)], { type: 'application/json' });
     const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = 'lakar_model.json';
-    a.click();
-    URL.revokeObjectURL(url);
+    const a    = Object.assign(document.createElement('a'), { href: url, download: 'lakar_model.json' });
+    a.click(); URL.revokeObjectURL(url);
   };
 
   return (
     <div className="sk-layout">
-      <TopBar
-        projectName="Untitled"
-        onMenuClick={() => {}}
-        onSave={handleSave}
-      />
+      <TopBar projectName="Untitled" onMenuClick={() => {}} onSave={handleSave} />
 
       <LeftToolbar activeTool={activeTool} setTool={setActiveTool} />
 
@@ -99,14 +93,21 @@ export default function App() {
         lineStart={lineStart}
         ghostEnd={ghostEnd}
         activeTool={activeTool}
-        onPointerMove={onPointerMove}
-        onPointerDown={onPointerDown}
+        hoveredFaceId={hoveredFaceId}
+        pushPullDepth={pushPullDepth}
+        onPointerMove={onMove}
+        onPointerDown={onDown}
+        onFaceHover={handleFaceHover}
+        onFaceDown={(faceId) => {
+          // Clicking a face in push/pull mode: trigger the hook
+          handlePointerDown(new (require('three').Vector3)(0, 0, 0), scene);
+        }}
       />
 
       <RightTray
         scene={scene}
         selectedIds={selectedIds}
-        onSelect={handleOutlinerSelect}
+        onSelect={(id) => setSelectedIds(new Set([id]))}
         chatHistory={chatHistory}
         onSendChat={handleSendChat}
         isLoading={isAiLoading}
