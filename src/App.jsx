@@ -83,7 +83,7 @@ export default function App() {
       />
       
       <BottomBar 
-        status={`${activeTool.toUpperCase()} Tool active. ${inference?.type !== 'none' ? `Snapped to ${inference.type}` : ''}`} 
+        status={`${activeTool.toUpperCase()} Tool active. ${(inference && inference.type !== 'none') ? `Snapped to ${inference.type}` : ''}`} 
         measurements={measurements}
         onMeasurementsChange={setMeasurements}
         onMeasurementsSubmit={(val) => {
