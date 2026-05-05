@@ -1,102 +1,125 @@
-import React, { useEffect, useState } from 'react';
-import TopBar from './components/layout/TopBar';
+import React, { useState, useCallback } from 'react';
+import TopBar    from './components/layout/TopBar';
 import LeftToolbar from './components/layout/LeftToolbar';
 import RightTray from './components/layout/RightTray';
 import BottomBar from './components/layout/BottomBar';
-import Viewport from './components/canvas/Viewport';
+import Viewport  from './components/canvas/Viewport';
 import { useCadEngine } from './hooks/useCadEngine';
+import { serializeForAI } from './services/geometryEngine';
 import { callAI } from './services/aiService';
 
+// ─── Default AI config ─────────────────────────────────────────
+const DEFAULT_AI_CONFIG = {
+  provider: 'ollama',
+  model:    'llama3',
+  apiKey:   '',
+  baseUrl:  'http://localhost:11434',
+};
+
 export default function App() {
+  // ── CAD Engine ────────────────────────────────────────────────
   const {
-    model,
+    scene,
     activeTool,
     setActiveTool,
-    selectedId,
-    setSelectedId,
+    selectedIds,
+    setSelectedIds,
     inference,
     lineStart,
-    ghostLineEnd,
+    ghostEnd,
+    measurements,
+    setMeasurements,
     handlePointerMove,
     handlePointerDown,
     handleMeasurementsSubmit,
-    cancelTool
   } = useCadEngine();
 
-  const [status, setStatus] = useState('Ready');
-  const [measurements, setMeasurements] = useState('');
+  // ── AI ────────────────────────────────────────────────────────
+  const [aiConfig, setAiConfig] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('lakar_ai_config')) || DEFAULT_AI_CONFIG; }
+    catch { return DEFAULT_AI_CONFIG; }
+  });
   const [chatHistory, setChatHistory] = useState([
-    { role: 'ai', text: 'SketchUp Replica Engine Loaded. I understand the Edge/Face manifold. Ask me to create or manipulate geometry.' }
+    { role: 'ai', text: 'Lakar CAD ready. I can read and manipulate the model. Configure your AI provider in the Settings panel below.' }
   ]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isAiLoading, setIsAiLoading] = useState(false);
 
-  // --- Escape key to cancel tools ---
-  useEffect(() => {
-    const handleKey = (e) => {
-      if (e.key === 'Escape') {
-        cancelTool();
-        setActiveTool('select');
-      }
-    };
-    window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
-  }, [cancelTool, setActiveTool]);
+  const updateAiConfig = (cfg) => {
+    setAiConfig(cfg);
+    localStorage.setItem('lakar_ai_config', JSON.stringify(cfg));
+  };
 
-  // --- AI Logic ---
-  const handleSendChat = async (text) => {
+  const handleSendChat = useCallback(async (text) => {
     setChatHistory(prev => [...prev, { role: 'user', text }]);
-    setIsLoading(true);
+    setIsAiLoading(true);
     try {
-      const context = JSON.stringify(model.serialize());
-      const response = await callAI('openrouter', { apiKey: '' }, text, context);
-      setChatHistory(prev => [...prev, { role: 'ai', text: response.message }]);
-      // Tool handling will be wired to model.addVertex/addEdge next
+      const context = serializeForAI(scene);
+      const response = await callAI(aiConfig.provider, aiConfig, text, context);
+      setChatHistory(prev => [...prev, { role: 'ai', text: response.message || JSON.stringify(response) }]);
     } catch (err) {
-      setChatHistory(prev => [...prev, { role: 'ai', text: `Error: ${err.message}` }]);
+      setChatHistory(prev => [...prev, { role: 'ai', text: `⚠️ ${err.message}` }]);
     } finally {
-      setIsLoading(false);
+      setIsAiLoading(false);
     }
+  }, [scene, aiConfig]);
+
+  // ── Pointer → pass current scene so inference is up-to-date ──
+  const onPointerMove = useCallback((pt) => handlePointerMove(pt, scene), [handlePointerMove, scene]);
+  const onPointerDown = useCallback((pt) => handlePointerDown(pt, scene), [handlePointerDown, scene]);
+
+  // ── Entity selection from Outliner ─────────────────────────
+  const handleOutlinerSelect = (id) => setSelectedIds(new Set([id]));
+
+  // ── File ops (real save/load via JSON) ─────────────────────
+  const handleSave = () => {
+    const data = JSON.stringify({ scene }, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = 'lakar_model.json';
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
-    <div className="app-layout">
-      <TopBar projectName="SketchUp Replica" saveStatus="saved" />
-      
-      <LeftToolbar activeTool={activeTool} setTool={setActiveTool} />
-      
-      <Viewport 
-        model={model}
-        selectedId={selectedId}
-        inference={inference}
-        lineStart={lineStart}
-        ghostLineEnd={ghostLineEnd}
-        onPointerMove={handlePointerMove}
-        onPointerDown={handlePointerDown}
-      />
-      
-      <RightTray 
-        selectedObject={selectedId ? { id: selectedId, name: 'Entity', type: 'Geom' } : null}
-        sceneRoot={{ id: 'root', name: 'Model', type: 'scene', children: [] }} // Placeholder for real outliner
-        chatHistory={chatHistory}
-        onSendChat={handleSendChat}
-        onSelectNode={setSelectedId}
-      />
-      
-      <BottomBar 
-        status={`${activeTool.toUpperCase()} Tool active. ${(inference && inference.type !== 'none') ? `Snapped to ${inference.type}` : ''}`} 
-        measurements={measurements}
-        onMeasurementsChange={setMeasurements}
-        onMeasurementsSubmit={(val) => {
-          handleMeasurementsSubmit(val);
-          setMeasurements('');
-        }}
+    <div className="sk-layout">
+      <TopBar
+        projectName="Untitled"
+        onMenuClick={() => {}}
+        onSave={handleSave}
       />
 
-      {isLoading && (
-        <div style={{ position: 'fixed', bottom: '50px', right: '300px', padding: '8px 16px', background: 'var(--color-accent)', color: '#fff', borderRadius: '20px', fontSize: '0.8rem', zIndex: 200 }}>
-          AI Thinking...
-        </div>
-      )}
+      <LeftToolbar activeTool={activeTool} setTool={setActiveTool} />
+
+      <Viewport
+        scene={scene}
+        selectedIds={selectedIds}
+        inference={inference}
+        lineStart={lineStart}
+        ghostEnd={ghostEnd}
+        activeTool={activeTool}
+        onPointerMove={onPointerMove}
+        onPointerDown={onPointerDown}
+      />
+
+      <RightTray
+        scene={scene}
+        selectedIds={selectedIds}
+        onSelect={handleOutlinerSelect}
+        chatHistory={chatHistory}
+        onSendChat={handleSendChat}
+        isLoading={isAiLoading}
+        aiConfig={aiConfig}
+        onAiConfigChange={updateAiConfig}
+      />
+
+      <BottomBar
+        activeTool={activeTool}
+        measurements={measurements}
+        onMeasurementsChange={setMeasurements}
+        onMeasurementsSubmit={handleMeasurementsSubmit}
+      />
     </div>
   );
 }

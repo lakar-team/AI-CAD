@@ -1,22 +1,44 @@
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 
-export default function BottomBar({ status, measurements }) {
+const TOOL_HINTS = {
+  select:  'Click to select. Delete key removes selected.',
+  line:    'Click to set start point. Click again to draw. Escape or Space to finish.',
+  eraser:  'Click on a vertex or edge to delete it.',
+  move:    'Select entities first, then click start and end points.',
+  tape:    'Click two points to measure distance.',
+};
+
+export default function BottomBar({ activeTool, measurements, onMeasurementsChange, onMeasurementsSubmit }) {
+  const inputRef = useRef(null);
+
+  // Auto-focus measurements when drawing
+  useEffect(() => {
+    if (activeTool === 'line' && measurements && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [measurements, activeTool]);
+
+  const hint = TOOL_HINTS[activeTool] || '';
+
   return (
-    <footer className="bottom-bar">
-      <div style={{ color: 'var(--color-text-muted)', fontWeight: 500 }}>
-        {status || 'Select objects or choose a tool to begin.'}
-      </div>
-      
-      <div className="measurements-box">
-        <label>Measurements</label>
-        <input 
-          type="text" 
-          value={measurements || ''} 
+    <footer className="sk-bottombar">
+      <span className="sk-status">{hint}</span>
+      <div className="sk-measurements">
+        <span className="sk-measurements-label">Measurements</span>
+        <input
+          ref={inputRef}
+          className="sk-measurements-input"
+          type="text"
+          value={measurements}
           onChange={(e) => onMeasurementsChange(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') onMeasurementsSubmit(e.target.value);
+            if (e.key === 'Enter') {
+              onMeasurementsSubmit(measurements);
+              e.target.blur();
+            }
           }}
-          placeholder="0.00m"
+          placeholder="—"
+          readOnly={activeTool === 'tape'} // tape is read-only display
         />
       </div>
     </footer>

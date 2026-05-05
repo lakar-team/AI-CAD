@@ -1,48 +1,50 @@
 import React from 'react';
-import { 
-  MousePointer2, Eraser, PaintBucket, Pencil, Circle, 
-  Square, Maximize, Move, RotateCcw, Scaling, 
-  Ruler, Search, Eye, Box
+import {
+  MousePointer2, Eraser, PaintBucket,
+  Pencil, Circle, Square, Maximize, Layers,
+  Move, RotateCcw, Scaling, Ruler, Type, Box,
 } from 'lucide-react';
 
-export default function LeftToolbar({ activeTool, setTool }) {
-  const tools = [
-    { id: 'select', icon: <MousePointer2 size={20} />, title: 'Select (Space)' },
-    { id: 'eraser', icon: <Eraser size={20} />, title: 'Eraser (E) [Placeholder]', isPlaceholder: true },
-    { id: 'paint', icon: <PaintBucket size={20} />, title: 'Paint Bucket (B) [Placeholder]', isPlaceholder: true },
-    { divider: true },
-    { id: 'line', icon: <Pencil size={20} />, title: 'Line (L)' },
-    { id: 'arc', icon: <Circle size={20} />, title: 'Arc (A) [Placeholder]', isPlaceholder: true },
-    { id: 'shapes', icon: <Box size={20} />, title: 'Rectangle (R) [Placeholder]', isPlaceholder: true },
-    { divider: true },
-    { id: 'pushpull', icon: <Maximize size={20} />, title: 'Push/Pull (P) [Placeholder]', isPlaceholder: true },
-    { id: 'offset', icon: <Square size={20} />, title: 'Offset (F) [Placeholder]', isPlaceholder: true },
-    { divider: true },
-    { id: 'move', icon: <Move size={20} />, title: 'Move (M)' },
-    { id: 'rotate', icon: <RotateCcw size={20} />, title: 'Rotate (Q) [Placeholder]', isPlaceholder: true },
-    { id: 'scale', icon: <Scaling size={20} />, title: 'Scale (S) [Placeholder]', isPlaceholder: true },
-    { divider: true },
-    { id: 'tape', icon: <Ruler size={20} />, title: 'Tape Measure (T) [Placeholder]', isPlaceholder: true },
-    { id: 'search', icon: <Search size={20} />, title: 'Search Commands [Placeholder]', isPlaceholder: true }
-  ];
+const TOOLS = [
+  // Group 1: Interaction
+  { id: 'select', icon: MousePointer2, label: 'Select (Space)',      key: 'Space', real: true },
+  { id: 'eraser', icon: Eraser,        label: 'Eraser (E)',          key: 'E',     real: true },
+  { sep: true },
+  // Group 2: Draw
+  { id: 'line',   icon: Pencil,        label: 'Line (L)',            key: 'L',     real: true },
+  { id: 'arc',    icon: Circle,        label: 'Arc (A) [Coming soon]',            key: 'A',     real: false },
+  { id: 'rect',   icon: Square,        label: 'Rectangle (R) [Coming soon]',      key: 'R',     real: false },
+  { sep: true },
+  // Group 3: Modify
+  { id: 'pushpull', icon: Maximize,   label: 'Push/Pull (P) [Coming soon]',       key: 'P',     real: false },
+  { id: 'move',   icon: Move,          label: 'Move (M)',            key: 'M',     real: true },
+  { id: 'rotate', icon: RotateCcw,     label: 'Rotate (Q) [Coming soon]',         key: 'Q',     real: false },
+  { id: 'scale',  icon: Scaling,       label: 'Scale (S) [Coming soon]',          key: 'S',     real: false },
+  { id: 'offset', icon: Layers,        label: 'Offset (F) [Coming soon]',         key: 'F',     real: false },
+  { sep: true },
+  // Group 4: Measure
+  { id: 'tape',   icon: Ruler,         label: 'Tape Measure (T)',    key: 'T',     real: true },
+  { id: 'text',   icon: Type,          label: 'Text [Coming soon]',               key: null,    real: false },
+];
 
+export default function LeftToolbar({ activeTool, setTool }) {
   return (
-    <nav className="left-toolbar">
-      {tools.map((tool, idx) => (
-        tool.divider ? (
-          <div key={`div-${idx}`} className="divider" />
-        ) : (
+    <nav className="sk-toolbar">
+      {TOOLS.map((t, i) => {
+        if (t.sep) return <div key={`sep-${i}`} className="sk-tool-sep" />;
+        const Icon = t.icon;
+        return (
           <button
-            key={tool.id}
-            className={`btn-tool ${activeTool === tool.id ? 'active' : ''} ${tool.isPlaceholder ? 'placeholder' : ''}`}
-            style={{ opacity: tool.isPlaceholder ? 0.4 : 1 }}
-            title={tool.title}
-            onClick={() => !tool.isPlaceholder && setTool(tool.id)}
+            key={t.id}
+            className={`sk-tool-btn ${activeTool === t.id ? 'active' : ''} ${!t.real ? 'placeholder' : ''}`}
+            title={t.label}
+            onClick={() => t.real && setTool(t.id)}
           >
-            {tool.icon}
+            <Icon size={18} strokeWidth={1.8} />
+            <span className="sk-tool-label">{t.label}</span>
           </button>
-        )
-      ))}
+        );
+      })}
     </nav>
   );
 }

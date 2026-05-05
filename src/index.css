@@ -1,221 +1,552 @@
 :root {
-  --color-bg-canvas: #f0f0f0;
-  --color-bg-ui: #ffffff;
-  --color-bg-hover: #f5f5f5;
-  --color-border: #dcdcdc;
-  --color-text: #333333;
-  --color-text-muted: #666666;
-  --color-accent: #1a73e8; /* Google/SketchUp blue */
-  --color-accent-soft: rgba(26, 115, 232, 0.1);
-  --color-success: #34a853;
-  --color-danger: #ea4335;
-  
-  --shadow-sm: 0 1px 2px rgba(0,0,0,0.1);
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
-  --font-family: 'Open Sans', 'Inter', system-ui, sans-serif;
-  
-  --toolbar-width: 44px;
-  --tray-width: 280px;
-  --topbar-height: 48px;
-  --bottombar-height: 32px;
+  /* SketchUp Free authentic color palette */
+  --sk-bg: #f0efed;
+  --sk-toolbar-bg: #393d3f;
+  --sk-toolbar-hover: #4e5457;
+  --sk-toolbar-active: #1a9fdc;
+  --sk-toolbar-border: #2a2d2f;
+  --sk-tray-bg: #ffffff;
+  --sk-tray-border: #d8d8d8;
+  --sk-tray-header: #ebebeb;
+  --sk-tray-header-hover: #dedede;
+  --sk-panel-content: #fafafa;
+  --sk-text: #333333;
+  --sk-text-muted: #666666;
+  --sk-text-light: #999999;
+  --sk-accent: #1a9fdc;
+  --sk-accent-hover: #1588bb;
+  --sk-green: #5cb85c;
+  --sk-danger: #d9534f;
+  --sk-topbar-bg: #f7f7f7;
+  --sk-topbar-border: #cccccc;
+  --sk-bottombar-bg: #f5f5f5;
+  --sk-bottombar-border: #c8c8c8;
+  --sk-grid: #d4d0cb;
+  --sk-axis-red: #cc3333;
+  --sk-axis-green: #339933;
+  --sk-axis-blue: #3333cc;
+
+  --tray-width: 256px;
+  --toolbar-width: 50px;
+  --topbar-height: 40px;
+  --bottombar-height: 28px;
+  --font: 'Open Sans', 'Segoe UI', system-ui, sans-serif;
 }
 
-* {
+*, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 
-body, html {
+body, html, #root {
   width: 100%;
   height: 100%;
-  background-color: var(--color-bg-canvas);
-  color: var(--color-text);
-  font-family: var(--font-family);
   overflow: hidden;
+  font-family: var(--font);
+  font-size: 13px;
+  color: var(--sk-text);
+  background: var(--sk-bg);
 }
 
-#root {
-  width: 100%;
-  height: 100%;
-}
-
-/* --- Layout Grid --- */
-.app-layout {
+/* ─── Layout Grid ─────────────────────────────────────────── */
+.sk-layout {
   display: grid;
   grid-template-areas:
-    "top top top"
-    "left main right"
-    "left bottom right";
+    "topbar   topbar  topbar"
+    "toolbar  canvas  tray"
+    "bottombar bottombar bottombar";
   grid-template-rows: var(--topbar-height) 1fr var(--bottombar-height);
   grid-template-columns: var(--toolbar-width) 1fr var(--tray-width);
   width: 100vw;
   height: 100vh;
 }
 
-/* --- Components --- */
-.top-bar {
-  grid-area: top;
-  background: var(--color-bg-ui);
-  border-bottom: 1px solid var(--color-border);
+/* ─── Top Bar ─────────────────────────────────────────────── */
+.sk-topbar {
+  grid-area: topbar;
+  background: var(--sk-topbar-bg);
+  border-bottom: 1px solid var(--sk-topbar-border);
   display: flex;
   align-items: center;
-  padding: 0 16px;
-  gap: 16px;
-  z-index: 100;
-}
-
-.left-toolbar {
-  grid-area: left;
-  background: var(--color-bg-ui);
-  border-right: 1px solid var(--color-border);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 8px 0;
+  padding: 0 8px;
   gap: 4px;
-  z-index: 90;
+  z-index: 100;
+  user-select: none;
 }
 
-.viewport-container {
-  grid-area: main;
-  position: relative;
-  overflow: hidden;
+.sk-topbar-brand {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--sk-text);
+  padding: 0 8px;
+  flex: 1;
 }
 
-.right-tray {
-  grid-area: right;
-  background: var(--color-bg-ui);
-  border-left: 1px solid var(--color-border);
-  display: flex;
-  flex-direction: column;
-  overflow-y: auto;
-  z-index: 90;
-}
-
-.bottom-bar {
-  grid-area: bottom;
-  background: var(--color-bg-ui);
-  border-top: 1px solid var(--color-border);
+.sk-topbar-btn {
+  height: 28px;
+  padding: 0 10px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 3px;
+  font-size: 12px;
+  color: var(--sk-text);
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 12px;
-  font-size: 0.8rem;
-  z-index: 100;
+  gap: 5px;
+  white-space: nowrap;
 }
 
-/* --- UI Elements --- */
-.btn-tool {
-  width: 34px;
-  height: 34px;
+.sk-topbar-btn:hover {
+  background: var(--sk-tray-border);
+}
+
+.sk-topbar-sep {
+  width: 1px;
+  height: 20px;
+  background: var(--sk-topbar-border);
+  margin: 0 4px;
+}
+
+/* ─── Left Toolbar ────────────────────────────────────────── */
+.sk-toolbar {
+  grid-area: toolbar;
+  background: var(--sk-toolbar-bg);
+  border-right: 1px solid var(--sk-toolbar-border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 0;
+  gap: 1px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  z-index: 90;
+}
+
+.sk-tool-btn {
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
-  border: 1px solid transparent;
+  border: none;
   background: transparent;
+  color: #d0d0d0;
   cursor: pointer;
-  color: var(--color-text);
-  transition: all 0.15s;
+  border-radius: 4px;
+  position: relative;
+  transition: background 0.1s, color 0.1s;
+  flex-shrink: 0;
 }
 
-.btn-tool:hover {
-  background: var(--color-bg-hover);
+.sk-tool-btn:hover {
+  background: var(--sk-toolbar-hover);
+  color: #ffffff;
 }
 
-.btn-tool.active {
-  background: var(--color-accent-soft);
-  border-color: var(--color-accent);
-  color: var(--color-accent);
+.sk-tool-btn.active {
+  background: var(--sk-toolbar-active);
+  color: #ffffff;
 }
 
-.measurements-box {
+.sk-tool-btn.placeholder {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.sk-tool-sep {
+  width: 32px;
+  height: 1px;
+  background: var(--sk-toolbar-border);
+  margin: 4px 0;
+  flex-shrink: 0;
+}
+
+.sk-tool-label {
+  position: absolute;
+  left: calc(100% + 6px);
+  top: 50%;
+  transform: translateY(-50%);
+  background: #222;
+  color: #fff;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 3px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 999;
+  transition: opacity 0.15s;
+}
+
+.sk-tool-btn:hover .sk-tool-label {
+  opacity: 1;
+}
+
+/* ─── Canvas / Viewport ───────────────────────────────────── */
+.sk-canvas {
+  grid-area: canvas;
+  position: relative;
+  overflow: hidden;
+  background: var(--sk-bg);
+}
+
+/* ─── Right Tray ──────────────────────────────────────────── */
+.sk-tray {
+  grid-area: tray;
+  background: var(--sk-tray-bg);
+  border-left: 1px solid var(--sk-tray-border);
   display: flex;
-  align-items: center;
-  gap: 8px;
-  background: #fff;
-  border-left: 1px solid var(--color-border);
-  height: 100%;
-  padding: 0 12px;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 90;
 }
 
-.measurements-box label {
-  color: var(--color-text-muted);
-  font-weight: 600;
+.sk-panel {
+  border-bottom: 1px solid var(--sk-tray-border);
+  flex-shrink: 0;
 }
 
-.measurements-box input {
-  border: 1px solid var(--color-border);
-  border-radius: 2px;
-  width: 80px;
-  padding: 2px 6px;
-  font-family: monospace;
-  font-size: 0.9rem;
-  outline: none;
-}
-
-.measurements-box input:focus {
-  border-color: var(--color-accent);
-}
-
-/* --- Tray Panels --- */
-.tray-panel {
-  border-bottom: 1px solid var(--color-border);
-}
-
-.panel-header {
-  padding: 8px 12px;
-  background: #f9f9f9;
-  font-size: 0.85rem;
+.sk-panel-header {
+  padding: 6px 10px;
+  background: var(--sk-tray-header);
+  border-bottom: 1px solid var(--sk-tray-border);
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  user-select: none;
 }
 
-.panel-header:hover {
-  background: #f0f0f0;
+.sk-panel-header:hover {
+  background: var(--sk-tray-header-hover);
 }
 
-.panel-content {
-  padding: 12px;
-  font-size: 0.85rem;
+.sk-panel-body {
+  background: var(--sk-panel-content);
+  padding: 8px 10px;
+  font-size: 12px;
 }
 
-/* --- Outliner --- */
-.outliner-item {
+/* Entity Info rows */
+.sk-ei-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
+  padding: 2px 0;
+  gap: 8px;
+}
+
+.sk-ei-label {
+  color: var(--sk-text-muted);
+  min-width: 60px;
+  font-size: 11px;
+}
+
+.sk-ei-value {
+  flex: 1;
+  background: #fff;
+  border: 1px solid var(--sk-tray-border);
+  border-radius: 2px;
+  padding: 1px 5px;
+  font-size: 11px;
+  font-family: monospace;
+}
+
+.sk-ei-value:focus {
+  outline: none;
+  border-color: var(--sk-accent);
+}
+
+/* Outliner */
+.sk-outliner-scroll {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.sk-outliner-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 6px;
   border-radius: 2px;
   cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  color: var(--sk-text);
 }
 
-.outliner-item:hover {
-  background: var(--color-bg-hover);
+.sk-outliner-item:hover {
+  background: #e8f4fb;
 }
 
-.outliner-item.selected {
-  background: var(--color-accent);
+.sk-outliner-item.selected {
+  background: var(--sk-accent);
   color: #fff;
 }
 
-/* --- Utilities --- */
-.divider {
-  width: 70%;
-  height: 1px;
-  background: var(--color-border);
-  margin: 4px 0;
+.sk-outliner-empty {
+  color: var(--sk-text-light);
+  font-style: italic;
+  padding: 4px 0;
+  font-size: 11px;
 }
 
-.animate-spin {
-  animation: spin 1s linear infinite;
+/* AI Chat Panel */
+.sk-ai-scroll {
+  max-height: 280px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 4px;
+}
+
+.sk-ai-msg {
+  font-size: 11px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  line-height: 1.4;
+}
+
+.sk-ai-msg.ai {
+  background: #eef6fc;
+  color: var(--sk-text);
+}
+
+.sk-ai-msg.user {
+  background: var(--sk-accent);
+  color: #fff;
+  align-self: flex-end;
+  max-width: 90%;
+}
+
+.sk-ai-input-row {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.sk-ai-input {
+  flex: 1;
+  border: 1px solid var(--sk-tray-border);
+  border-radius: 3px;
+  padding: 4px 7px;
+  font-size: 11px;
+  font-family: var(--font);
+  outline: none;
+  background: #fff;
+}
+
+.sk-ai-input:focus {
+  border-color: var(--sk-accent);
+}
+
+.sk-ai-send {
+  border: none;
+  background: var(--sk-accent);
+  color: #fff;
+  border-radius: 3px;
+  padding: 4px 10px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.sk-ai-send:hover {
+  background: var(--sk-accent-hover);
+}
+
+/* Settings panel */
+.sk-settings-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 8px;
+}
+
+.sk-settings-label {
+  font-size: 11px;
+  color: var(--sk-text-muted);
+  font-weight: 600;
+}
+
+.sk-settings-input,
+.sk-settings-select {
+  border: 1px solid var(--sk-tray-border);
+  border-radius: 3px;
+  padding: 4px 7px;
+  font-size: 11px;
+  font-family: var(--font);
+  background: #fff;
+  width: 100%;
+  outline: none;
+}
+
+.sk-settings-input:focus,
+.sk-settings-select:focus {
+  border-color: var(--sk-accent);
+}
+
+/* ─── Bottom Bar ──────────────────────────────────────────── */
+.sk-bottombar {
+  grid-area: bottombar;
+  background: var(--sk-bottombar-bg);
+  border-top: 1px solid var(--sk-bottombar-border);
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  gap: 12px;
+  z-index: 100;
+  user-select: none;
+}
+
+.sk-status {
+  flex: 1;
+  font-size: 11px;
+  color: var(--sk-text-muted);
+}
+
+.sk-measurements {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--sk-bottombar-border);
+  background: #fff;
+  border-radius: 2px;
+  padding: 1px 6px;
+}
+
+.sk-measurements-label {
+  font-size: 11px;
+  color: var(--sk-text-muted);
+  white-space: nowrap;
+}
+
+.sk-measurements-input {
+  border: none;
+  outline: none;
+  font-size: 12px;
+  font-family: monospace;
+  width: 90px;
+  padding: 1px 0;
+  background: transparent;
+  text-align: right;
+}
+
+/* ─── Tool cursor feedback overlay ───────────────────────── */
+.sk-tool-hint {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,0.72);
+  color: #fff;
+  font-size: 11px;
+  padding: 4px 12px;
+  border-radius: 10px;
+  pointer-events: none;
+  z-index: 200;
+  white-space: nowrap;
+}
+
+/* ─── Scrollbar ───────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #aaa; }
+
+/* ─── Modal (Settings popup) ──────────────────────────────── */
+.sk-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.sk-modal {
+  background: #fff;
+  border-radius: 6px;
+  width: 420px;
+  max-width: 95vw;
+  max-height: 85vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+}
+
+.sk-modal-header {
+  padding: 14px 18px;
+  background: var(--sk-tray-header);
+  border-bottom: 1px solid var(--sk-tray-border);
+  font-weight: 700;
+  font-size: 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sk-modal-body {
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sk-modal-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--sk-text-muted);
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+}
+
+.sk-btn {
+  padding: 6px 14px;
+  border-radius: 3px;
+  border: 1px solid var(--sk-tray-border);
+  background: var(--sk-tray-header);
+  font-size: 12px;
+  font-family: var(--font);
+  cursor: pointer;
+  color: var(--sk-text);
+}
+
+.sk-btn:hover {
+  background: var(--sk-tray-border);
+}
+
+.sk-btn.primary {
+  background: var(--sk-accent);
+  color: #fff;
+  border-color: var(--sk-accent-hover);
+}
+
+.sk-btn.primary:hover {
+  background: var(--sk-accent-hover);
+}
+
+.sk-btn.danger {
+  background: var(--sk-danger);
+  color: #fff;
+  border-color: #c9302c;
+}
+
+/* Loading spinner */
+.sk-spinner {
+  width: 10px;
+  height: 10px;
+  border: 2px solid rgba(255,255,255,0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  display: inline-block;
 }
 
 @keyframes spin {
-  from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
