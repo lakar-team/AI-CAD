@@ -1,44 +1,46 @@
-import React, { useRef, useEffect } from 'react';
-
 const TOOL_HINTS = {
-  select:  'Click to select. Delete key removes selected.',
-  line:    'Click to set start point. Click again to draw. Escape or Space to finish.',
-  eraser:  'Click on a vertex or edge to delete it.',
-  move:    'Select entities first, then click start and end points.',
-  tape:    'Click two points to measure distance.',
+  select: 'Click to select (Shift adds). Double-click a group/component to edit inside it. Delete removes.',
+  line: 'Click points to draw edges — closed loops become faces. Type a length + Enter. Arrows lock axis.',
+  rect: 'Click two opposite corners on the ground or on a face.',
+  circle: 'Click the center, then a point on the radius (or type the radius + Enter).',
+  eraser: 'Click an edge, face, vertex or group to delete it.',
+  move: 'Click a base point, then a destination. Works on selections and groups.',
+  tape: 'Click two points to measure the distance.',
+  pushpull: 'Click a face, drag along its normal, click again — or type a distance + Enter.',
+  orbit: 'Drag with the left mouse button to orbit. Middle = orbit, right = pan (always).',
 };
 
-export default function BottomBar({ activeTool, measurements, onMeasurementsChange, onMeasurementsSubmit }) {
-  const inputRef = useRef(null);
+const AXIS_LABELS = { x: 'red (X)', y: 'blue (Y)', z: 'green (Z)' };
 
-  // Auto-focus measurements when drawing
-  useEffect(() => {
-    if (activeTool === 'line' && measurements && inputRef.current) {
-      inputRef.current.focus();
-    }
-  }, [measurements, activeTool]);
-
-  const hint = TOOL_HINTS[activeTool] || '';
-
+export default function BottomBar({
+  activeTool,
+  axisLock,
+  measurement,
+  onMeasurementChange,
+  onMeasurementSubmit,
+}) {
   return (
     <footer className="sk-bottombar">
-      <span className="sk-status">{hint}</span>
+      <span className="sk-status">
+        {TOOL_HINTS[activeTool] || ''}
+        {axisLock && (
+          <strong style={{ marginLeft: 8 }}>🔒 locked to the {AXIS_LABELS[axisLock]} axis</strong>
+        )}
+      </span>
       <div className="sk-measurements">
         <span className="sk-measurements-label">Measurements</span>
         <input
-          ref={inputRef}
           className="sk-measurements-input"
           type="text"
-          value={measurements}
-          onChange={(e) => onMeasurementsChange(e.target.value)}
+          value={measurement}
+          onChange={(e) => onMeasurementChange(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
-              onMeasurementsSubmit(measurements);
+              onMeasurementSubmit(e.target.value);
               e.target.blur();
             }
           }}
           placeholder="—"
-          readOnly={activeTool === 'tape'} // tape is read-only display
         />
       </div>
     </footer>

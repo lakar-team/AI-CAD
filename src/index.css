@@ -109,6 +109,51 @@ body, html, #root {
   margin: 0 4px;
 }
 
+.sk-topbar-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ─── File menu dropdown ──────────────────────────────────── */
+.sk-menu {
+  position: absolute;
+  top: 30px;
+  left: 0;
+  min-width: 190px;
+  background: #fff;
+  border: 1px solid var(--sk-tray-border);
+  border-radius: 4px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
+  padding: 4px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+}
+
+.sk-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--sk-text);
+  border-radius: 3px;
+  text-align: left;
+}
+
+.sk-menu-item:hover {
+  background: var(--sk-canvas-bg, #eef2f6);
+}
+
+.sk-menu-sep {
+  height: 1px;
+  background: var(--sk-tray-border);
+  margin: 4px 6px;
+}
+
 /* ─── Left Toolbar ────────────────────────────────────────── */
 .sk-toolbar {
   grid-area: toolbar;

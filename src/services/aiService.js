@@ -188,7 +188,7 @@ async function callOllama(url, model, prompt, systemPrompt, imageUrl) {
       body: JSON.stringify(requestBody)
     });
   } catch (e) {
-    throw new Error(`Cannot connect to Ollama at ${url}. Is Ollama running? (${e.message})`);
+    throw new Error(`Cannot connect to Ollama at ${url}. Is Ollama running? (${e.message})`, { cause: e });
   }
 
   if (!response.ok) {
@@ -226,7 +226,8 @@ async function callAnthropic(key, model, prompt, systemPrompt) {
   } catch (e) {
     throw new Error(
       'Anthropic API blocked by CORS. Direct browser calls to Anthropic are not supported. ' +
-      'Use OpenAI or a local model (Ollama/LM Studio) instead, or set up a CORS proxy.'
+      'Use OpenAI or a local model (Ollama/LM Studio) instead, or set up a CORS proxy.',
+      { cause: e },
     );
   }
 

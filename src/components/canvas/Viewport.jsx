@@ -1,316 +1,384 @@
-import React, { useRef, useCallback, useMemo, useLayoutEffect } from 'react';
-import { Canvas, useThree, useFrame } from '@react-three/fiber';
+/**
+ * Viewport.jsx — three.js viewport for the CAD engine.
+ *
+ * All picking/snapping happens in the core inference engine (src/core), so
+ * this component's job is: render the model (recursively through instances),
+ * convert pointer events into world-space rays for the hook, and draw the
+ * overlay graphics (inference marker, ghost lines, previews).
+ */
+
+import React, { useMemo, useRef, useEffect } from 'react';
+import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, GizmoHelper, GizmoViewport, Line } from '@react-three/drei';
 import * as THREE from 'three';
-import { triangulateFace, computeNormal } from '../../services/geometryEngine';
+import { triangulateLoop } from '../../core/triangulate.js';
+import { add, scale, multiplyM4, identityM4, transformPoint } from '../../core/math3.js';
+import { AXIS_COLORS } from '../../core/inference.js';
 
-// ─── Camera setup ─────────────────────────────────────────────
-function CameraSetup() {
-  const { camera } = useThree();
-  useLayoutEffect(() => {
-    camera.position.set(8, 6, 8);
-    camera.lookAt(0, 0, 0);
-    camera.near = 0.01;
-    camera.far  = 10000;
-    camera.updateProjectionMatrix();
-  }, [camera]);
+const SNAP_PIXELS = 9;
+
+const INFERENCE_COLORS = {
+  endpoint: '#21a121',
+  midpoint: '#00b5b5',
+  'on-edge': '#c33',
+  'on-face': '#36c',
+  axis: '#888',
+  ground: '#999',
+  free: '#bbb',
+};
+
+// ─── pointer → world ray plumbing ────────────────────────────────────────────
+function PointerRig({ onRay, onClick, onDoubleClick }) {
+  const { gl, camera, size } = useThree();
+  const handlers = useRef({ onRay, onClick, onDoubleClick, camera, size });
+
+  useEffect(() => {
+    handlers.current = { onRay, onClick, onDoubleClick, camera, size };
+  }, [onRay, onClick, onDoubleClick, camera, size]);
+
+  useEffect(() => {
+    const el = gl.domElement;
+    const down = { x: 0, y: 0, moved: false };
+    const raycaster = new THREE.Raycaster();
+    const ndc = new THREE.Vector2();
+
+    const makeRay = (ev) => {
+      const { camera, size } = handlers.current;
+      const rect = el.getBoundingClientRect();
+      ndc.set(
+        ((ev.clientX - rect.left) / rect.width) * 2 - 1,
+        -((ev.clientY - rect.top) / rect.height) * 2 + 1,
+      );
+      raycaster.setFromCamera(ndc, camera);
+      const o = raycaster.ray.origin;
+      const d = raycaster.ray.direction;
+      // world-space snap radius ≈ SNAP_PIXELS at the camera's focus distance
+      const dist = Math.max(1, o.length());
+      const worldPerPixel = (2 * dist * Math.tan((camera.fov * Math.PI) / 360)) / size.height;
+      return {
+        ray: { origin: [o.x, o.y, o.z], dir: [d.x, d.y, d.z] },
+        radius: SNAP_PIXELS * worldPerPixel,
+      };
+    };
+
+    const onPointerMove = (ev) => {
+      if (ev.buttons & 6) return; // orbiting / panning
+      const { ray, radius } = makeRay(ev);
+      if (Math.abs(ev.clientX - down.x) + Math.abs(ev.clientY - down.y) > 4) down.moved = true;
+      handlers.current.onRay(ray, radius);
+    };
+    const onPointerDown = (ev) => {
+      if (ev.button !== 0) return;
+      down.x = ev.clientX;
+      down.y = ev.clientY;
+      down.moved = false;
+    };
+    const onPointerUp = (ev) => {
+      if (ev.button !== 0 || down.moved) return;
+      const { ray, radius } = makeRay(ev);
+      handlers.current.onClick(ray, radius, { shift: ev.shiftKey });
+    };
+    const onDbl = (ev) => {
+      const { ray, radius } = makeRay(ev);
+      handlers.current.onDoubleClick(ray, radius);
+    };
+
+    el.addEventListener('pointermove', onPointerMove);
+    el.addEventListener('pointerdown', onPointerDown);
+    el.addEventListener('pointerup', onPointerUp);
+    el.addEventListener('dblclick', onDbl);
+    return () => {
+      el.removeEventListener('pointermove', onPointerMove);
+      el.removeEventListener('pointerdown', onPointerDown);
+      el.removeEventListener('pointerup', onPointerUp);
+      el.removeEventListener('dblclick', onDbl);
+    };
+  }, [gl]);
+
   return null;
 }
 
-// ─── SketchUp-style grid ─────────────────────────────────────
-const GridMemo = React.memo(function SketchUpGrid() {
-  const size = 50;
-  const minor = [], major = [];
-  for (let i = -size; i <= size; i++) {
-    const isM = i % 5 === 0;
-    const pts1 = [new THREE.Vector3(-size, 0, i), new THREE.Vector3(size, 0, i)];
-    const pts2 = [new THREE.Vector3(i, 0, -size), new THREE.Vector3(i, 0, size)];
-    if (isM) { major.push(pts1, pts2); } else { minor.push(pts1, pts2); }
-  }
+// ─── grid ─────────────────────────────────────────────────────────────────────
+const Grid = React.memo(function Grid() {
+  const { minorGeo, majorGeo } = useMemo(() => {
+    const size = 50;
+    const minor = [], major = [];
+    for (let i = -size; i <= size; i++) {
+      const arr = i % 5 === 0 ? major : minor;
+      arr.push(-size, 0, i, size, 0, i);
+      arr.push(i, 0, -size, i, 0, size);
+    }
+    const make = (a) => {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(a, 3));
+      return g;
+    };
+    return { minorGeo: make(minor), majorGeo: make(major) };
+  }, []);
   return (
-    <group position={[0, 0, 0]}>
-      {minor.map((pts, i) => <Line key={`m${i}`} points={pts} color="#c8c8c0" lineWidth={0.4} />)}
-      {major.map((pts, i) => <Line key={`M${i}`} points={pts} color="#a8a8a0" lineWidth={0.8} />)}
-      {/* Axis lines */}
-      <Line points={[[-size,0,0],[size,0,0]]} color="#cc3333" lineWidth={1.5} />
-      <Line points={[[0,0,-size],[0,0,size]]} color="#339933" lineWidth={1.5} />
-      <Line points={[[0,0,0],[0,size,0]]}     color="#3333cc" lineWidth={1.5} />
+    <group>
+      <lineSegments geometry={minorGeo}>
+        <lineBasicMaterial color="#dcdcd4" />
+      </lineSegments>
+      <lineSegments geometry={majorGeo}>
+        <lineBasicMaterial color="#c4c4bc" />
+      </lineSegments>
+      <Line points={[[-50, 0, 0], [50, 0, 0]]} color={AXIS_COLORS.x} lineWidth={1.5} />
+      <Line points={[[0, 0, -50], [0, 0, 50]]} color={AXIS_COLORS.z} lineWidth={1.5} />
+      <Line points={[[0, 0, 0], [0, 50, 0]]} color={AXIS_COLORS.y} lineWidth={1.5} />
     </group>
   );
 });
 
-// ─── Ground plane (captures pointer, invisible) ───────────────
-function GroundPlane({ onMove, onDown, drawingActive }) {
-  const { raycaster } = useThree();
-  const plane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), []);
-  const hit   = useMemo(() => new THREE.Vector3(), []);
+// ─── model rendering ─────────────────────────────────────────────────────────
 
-  const getPoint = () => {
-    raycaster.ray.intersectPlane(plane, hit);
-    return hit.clone();
-  };
+/**
+ * Flatten the model into render batches. Recomputed when model.version bumps.
+ */
+function useRenderData(model, version, selection, hoveredFaceId) {
+  return useMemo(() => {
+    void version;
+    const faces = [];
+    const edgeLines = { normal: [], selected: [], dimmed: [] };
+    const vertexDots = [];
+    const activeKey = JSON.stringify(model.activeContext);
 
-  return (
-    <mesh
-      rotation={[-Math.PI / 2, 0, 0]}
-      onPointerMove={(e) => { e.stopPropagation(); onMove(getPoint(), e); }}
-      onPointerDown={(e) => { if (drawingActive) e.stopPropagation(); onDown(getPoint()); }}
-      visible={false}
-      renderOrder={-1}
-    >
-      <planeGeometry args={[1000, 1000]} />
-      <meshBasicMaterial side={THREE.DoubleSide} />
-    </mesh>
-  );
-}
+    const walk = (def, matrix, path, selectedInstance) => {
+      const pathKey = JSON.stringify(path);
+      const isActiveCtx = pathKey === activeKey;
+      const dimmed = model.activeContext.length > 0 && !isActiveCtx && !selectedInstance;
 
-// ─── Face mesh renderer ───────────────────────────────────────
-function FaceMesh({ face, scene, isSelected, isHovered, onHover, onDown, activeTool }) {
-  const positions = useMemo(() => {
-    return face.vertices
-      .map(id => scene.vertices[id])
-      .filter(Boolean)
-      .map(v => new THREE.Vector3(v.x, v.y, v.z));
-  }, [face, scene]);
+      for (const f of def.mesh.faces.values()) {
+        const pts = f.loop.map((vid) => transformPoint(matrix, def.mesh.vertices.get(vid).p));
+        const tris = triangulateLoop(pts);
+        if (!tris.length) continue;
+        const positions = new Float32Array(tris.length * 9);
+        let k = 0;
+        for (const [a, b, c] of tris) {
+          for (const i of [a, b, c]) {
+            positions[k++] = pts[i][0];
+            positions[k++] = pts[i][1];
+            positions[k++] = pts[i][2];
+          }
+        }
+        faces.push({
+          key: `${pathKey}:${f.id}`,
+          positions,
+          color: f.color,
+          dimmed,
+          selected: isActiveCtx && selection.has(f.id),
+          hovered: isActiveCtx && hoveredFaceId === f.id,
+        });
+      }
 
-  const geometry = useMemo(() => {
-    if (positions.length < 3) return null;
-    const arr = triangulateFace(positions);
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(arr, 3));
-    geo.computeVertexNormals();
-    return geo;
-  }, [positions]);
+      for (const e of def.mesh.edges.values()) {
+        const a = transformPoint(matrix, def.mesh.vertices.get(e.a).p);
+        const b = transformPoint(matrix, def.mesh.vertices.get(e.b).p);
+        const bucket = selectedInstance || (isActiveCtx && selection.has(e.id))
+          ? 'selected' : dimmed ? 'dimmed' : 'normal';
+        edgeLines[bucket].push(...a, ...b);
+      }
 
-  if (!geometry) return null;
+      if (isActiveCtx && def.mesh.vertices.size <= 800) {
+        for (const v of def.mesh.vertices.values()) {
+          vertexDots.push({
+            key: v.id,
+            p: transformPoint(matrix, v.p),
+            selected: selection.has(v.id),
+          });
+        }
+      }
 
-  const isPushPull = activeTool === 'pushpull';
-  const color = isHovered && isPushPull ? '#b0d0f0'
-              : isSelected              ? '#a8c8e8'
-              : face.color              || '#d8d8c8';
-  const opacity = isHovered && isPushPull ? 0.85 : 0.7;
-
-  return (
-    <mesh
-      geometry={geometry}
-      onPointerOver={(e) => { e.stopPropagation(); onHover(face.id); }}
-      onPointerOut={(e) => { e.stopPropagation(); onHover(null); }}
-      onPointerDown={(e) => {
-        if (isPushPull) { e.stopPropagation(); onDown(face.id); }
-      }}
-    >
-      <meshStandardMaterial
-        color={color}
-        transparent
-        opacity={opacity}
-        side={THREE.DoubleSide}
-        roughness={0.8}
-      />
-    </mesh>
-  );
-}
-
-// ─── All edges ────────────────────────────────────────────────
-function EdgeRenderer({ scene, selectedIds }) {
-  return (
-    <>
-      {Object.values(scene.edges).map(e => {
-        const v1 = scene.vertices[e.v1];
-        const v2 = scene.vertices[e.v2];
-        if (!v1 || !v2) return null;
-        const sel = selectedIds.has(e.id);
-        return (
-          <Line
-            key={e.id}
-            points={[new THREE.Vector3(v1.x, v1.y, v1.z), new THREE.Vector3(v2.x, v2.y, v2.z)]}
-            color={sel ? '#1a9fdc' : '#1a1a1a'}
-            lineWidth={sel ? 3 : 2}
-          />
+      for (const inst of def.children) {
+        walk(
+          model.definitions.get(inst.definitionId),
+          multiplyM4(matrix, inst.transform),
+          [...path, inst.id],
+          selectedInstance || selection.has(inst.id),
         );
-      })}
-    </>
+      }
+    };
+    walk(model.root(), identityM4(), [], false);
+    return { faces, edgeLines, vertexDots };
+  }, [model, version, selection, hoveredFaceId]);
+}
+
+function EdgeBatch({ positions, color, lineWidth = 1, opacity = 1 }) {
+  const geo = useMemo(() => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    return g;
+  }, [positions]);
+  if (positions.length === 0) return null;
+  return (
+    <lineSegments geometry={geo}>
+      <lineBasicMaterial color={color} transparent={opacity < 1} opacity={opacity} linewidth={lineWidth} />
+    </lineSegments>
   );
 }
 
-// ─── All vertices ─────────────────────────────────────────────
-function VertexDots({ scene, selectedIds }) {
+function ModelRender({ model, version, selection, hoveredFaceId }) {
+  const { faces, edgeLines, vertexDots } = useRenderData(model, version, selection, hoveredFaceId);
   return (
-    <>
-      {Object.values(scene.vertices).map(v => {
-        const sel = selectedIds.has(v.id);
+    <group>
+      {faces.map((f) => {
+        const color = f.hovered ? '#aecdf0' : f.selected ? '#9cc3ec' : f.color;
         return (
-          <mesh key={v.id} position={[v.x, v.y, v.z]}>
-            <sphereGeometry args={[sel ? 0.065 : 0.045, 6, 6]} />
-            <meshBasicMaterial color={sel ? '#1a9fdc' : '#555555'} />
+          <mesh key={f.key} renderOrder={0}>
+            <bufferGeometry>
+              <bufferAttribute attach="attributes-position" args={[f.positions, 3]} />
+            </bufferGeometry>
+            <meshStandardMaterial
+              color={color}
+              side={THREE.DoubleSide}
+              transparent={f.dimmed}
+              opacity={f.dimmed ? 0.25 : 1}
+              polygonOffset
+              polygonOffsetFactor={1}
+              polygonOffsetUnits={1}
+              roughness={0.85}
+              metalness={0}
+              flatShading
+            />
           </mesh>
         );
       })}
-    </>
+      <EdgeBatch positions={edgeLines.normal} color="#1c1c1c" />
+      <EdgeBatch positions={edgeLines.dimmed} color="#1c1c1c" opacity={0.2} />
+      <EdgeBatch positions={edgeLines.selected} color="#1a9fdc" lineWidth={2} />
+      {vertexDots.map((v) => (
+        <mesh key={v.key} position={v.p}>
+          <sphereGeometry args={[v.selected ? 0.035 : 0.022, 8, 8]} />
+          <meshBasicMaterial color={v.selected ? '#1a9fdc' : '#444'} />
+        </mesh>
+      ))}
+    </group>
   );
 }
 
-// ─── Ghost line while drawing ─────────────────────────────────
-function GhostLine({ start, end }) {
-  if (!start || !end) return null;
-  return (
-    <Line
-      points={[start, end]}
-      color="#1a9fdc"
-      lineWidth={1.5}
-      dashed
-      dashSize={0.18}
-      gapSize={0.08}
-    />
-  );
-}
+// ─── overlays ─────────────────────────────────────────────────────────────────
 
-// ─── Inference snap marker ────────────────────────────────────
 function InferenceMarker({ inference }) {
-  if (!inference || inference.type === 'free' || inference.type === 'grid') return null;
-  const color = inference.type === 'endpoint' ? '#00bb00' : '#2255dd';
+  if (!inference || inference.type === 'free') return null;
+  const color = inference.axis
+    ? AXIS_COLORS[inference.axis]
+    : INFERENCE_COLORS[inference.type] || '#999';
+  if (inference.type === 'ground') return null;
   return (
-    <mesh position={inference.point} renderOrder={10}>
-      <sphereGeometry args={[0.07, 8, 8]} />
+    <mesh position={inference.point} renderOrder={20}>
+      <sphereGeometry args={[0.045, 10, 10]} />
       <meshBasicMaterial color={color} depthTest={false} />
     </mesh>
   );
 }
 
-// ─── Push/Pull live preview line ───────────────────────────────
-function PushPullPreview({ face, depth, scene }) {
-  if (!face || depth === null) return null;
-  const normal = new THREE.Vector3(face.normal.x, face.normal.y, face.normal.z);
-  const positions = face.vertices
-    .map(id => scene.vertices[id])
-    .filter(Boolean)
-    .map(v => new THREE.Vector3(v.x, v.y, v.z));
-  if (positions.length < 2) return null;
+function PreviewOverlay({ preview, model }) {
+  if (!preview) return null;
 
-  // Draw offset edges as preview
-  const offset = normal.clone().multiplyScalar(depth);
-  return (
-    <>
-      {positions.map((p, i) => {
-        const p2 = positions[(i + 1) % positions.length];
-        const tp = p.clone().add(offset);
-        const tp2 = p2.clone().add(offset);
-        return (
-          <React.Fragment key={i}>
-            <Line points={[tp, tp2]} color="#1a9fdc" lineWidth={1.5} dashed dashSize={0.1} gapSize={0.05} />
-            <Line points={[p, tp]} color="#1a9fdc" lineWidth={1} dashed dashSize={0.1} gapSize={0.05} />
-          </React.Fragment>
-        );
-      })}
-    </>
-  );
+  if (preview.type === 'line' || preview.type === 'move') {
+    const color = preview.axis ? AXIS_COLORS[preview.axis] : '#1a9fdc';
+    return (
+      <Line
+        points={[preview.a, preview.b]}
+        color={color}
+        lineWidth={preview.axis ? 2 : 1.5}
+        dashed={!!preview.dashed || preview.type === 'move'}
+        dashSize={0.12}
+        gapSize={0.06}
+      />
+    );
+  }
+
+  if (preview.type === 'loop' && preview.points?.length >= 2) {
+    return (
+      <Line
+        points={[...preview.points, preview.points[0]]}
+        color="#1a9fdc"
+        lineWidth={1.5}
+      />
+    );
+  }
+
+  if (preview.type === 'pushpull') {
+    const offset = scale(preview.normal, preview.dist);
+    const top = preview.loop.map((p) => add(p, offset));
+    return (
+      <group>
+        <Line points={[...top, top[0]]} color="#1a9fdc" lineWidth={1.5} />
+        {preview.loop.map((p, i) => (
+          <Line key={i} points={[p, top[i]]} color="#1a9fdc" lineWidth={1} dashed dashSize={0.1} gapSize={0.05} />
+        ))}
+      </group>
+    );
+  }
+
+  void model;
+  return null;
 }
 
-// ─── Orbit controls — middle mouse always works ───────────────
-function SmartOrbitControls({ activeTool }) {
-  return (
-    <OrbitControls
-      makeDefault
-      enableDamping={false}
-      mouseButtons={{
-        LEFT:   activeTool === 'select' ? THREE.MOUSE.ROTATE : undefined,
-        MIDDLE: THREE.MOUSE.ROTATE,
-        RIGHT:  THREE.MOUSE.PAN,
-      }}
-      touches={{
-        ONE:  THREE.TOUCH.ROTATE,
-        TWO:  THREE.TOUCH.DOLLY_PAN,
-      }}
-    />
-  );
-}
+// ─── main viewport ────────────────────────────────────────────────────────────
 
-// ─── Main Viewport ────────────────────────────────────────────
+const CURSORS = {
+  select: 'default',
+  line: 'crosshair',
+  rect: 'crosshair',
+  circle: 'crosshair',
+  eraser: 'cell',
+  move: 'move',
+  tape: 'crosshair',
+  pushpull: 'ns-resize',
+  orbit: 'grab',
+};
+
 export default function Viewport({
-  scene,
-  selectedIds,
-  inference,
-  lineStart,
-  ghostEnd,
+  model,
+  version,
   activeTool,
+  selection,
+  inference,
+  preview,
   hoveredFaceId,
-  pushPullDepth,
-  onPointerMove,
-  onPointerDown,
-  onFaceHover,
-  onFaceDown,
+  onPointerRay,
+  onClick,
+  onDoubleClick,
 }) {
-  const cursors = {
-    select:   'default',
-    line:     'crosshair',
-    eraser:   'cell',
-    move:     'move',
-    tape:     'crosshair',
-    pushpull: 'ns-resize',
-  };
-
-  const drawingActive = activeTool !== 'select';
-  const hoveredFace = hoveredFaceId ? scene.faces[hoveredFaceId] : null;
-
   return (
-    <div className="sk-canvas" style={{ cursor: cursors[activeTool] || 'default' }}>
+    <div className="sk-canvas" style={{ cursor: CURSORS[activeTool] || 'default' }}>
       <Canvas
-        shadows={false}
         gl={{ antialias: true }}
         dpr={[1, 2]}
-        frameloop="demand"
-        onPointerMissed={() => {}}
+        camera={{ position: [9, 7, 9], fov: 50, near: 0.01, far: 10000 }}
       >
-        <CameraSetup />
-        <SmartOrbitControls activeTool={activeTool} />
-        <color attach="background" args={['#f0efed']} />
-
-        <ambientLight intensity={1.6} />
-        <directionalLight position={[5, 10, 5]} intensity={1.2} />
-
-        <GridMemo />
-
-        {/* Ground plane for drawing */}
-        <GroundPlane
-          onMove={(pt, e) => onPointerMove(pt, scene)}
-          onDown={(pt)    => onPointerDown(pt, scene)}
-          drawingActive={drawingActive}
+        <OrbitControls
+          makeDefault
+          enableDamping={false}
+          mouseButtons={{
+            LEFT: activeTool === 'orbit' ? THREE.MOUSE.ROTATE : undefined,
+            MIDDLE: THREE.MOUSE.ROTATE,
+            RIGHT: THREE.MOUSE.PAN,
+          }}
         />
+        <color attach="background" args={['#f2f1ee']} />
+        <ambientLight intensity={1.1} />
+        <directionalLight position={[6, 12, 6]} intensity={1.4} />
+        <directionalLight position={[-6, 4, -8]} intensity={0.5} />
 
-        {/* Faces (with fill) */}
-        {Object.values(scene.faces).map(face => (
-          <FaceMesh
-            key={face.id}
-            face={face}
-            scene={scene}
-            isSelected={selectedIds.has(face.id)}
-            isHovered={hoveredFaceId === face.id}
-            onHover={onFaceHover}
-            onDown={onFaceDown}
-            activeTool={activeTool}
-          />
-        ))}
-
-        {/* Edges */}
-        <EdgeRenderer scene={scene} selectedIds={selectedIds} />
-
-        {/* Vertex dots */}
-        <VertexDots scene={scene} selectedIds={selectedIds} />
-
-        {/* Drawing helpers */}
+        <Grid />
+        <PointerRig onRay={onPointerRay} onClick={onClick} onDoubleClick={onDoubleClick} />
+        <ModelRender
+          model={model}
+          version={version}
+          selection={selection}
+          hoveredFaceId={hoveredFaceId}
+        />
         <InferenceMarker inference={inference} />
-        <GhostLine start={lineStart} end={ghostEnd} />
-
-        {/* Push/Pull preview */}
-        {hoveredFace && (
-          <PushPullPreview
-            face={hoveredFace}
-            depth={pushPullDepth ?? 0}
-            scene={scene}
-          />
-        )}
+        <PreviewOverlay preview={preview} model={model} />
 
         <GizmoHelper alignment="bottom-right" margin={[72, 72]}>
-          <GizmoViewport axisColors={['#cc3333', '#339933', '#3333cc']} labelColor="black" />
+          <GizmoViewport
+            axisColors={[AXIS_COLORS.x, AXIS_COLORS.y, AXIS_COLORS.z]}
+            labelColor="black"
+          />
         </GizmoHelper>
       </Canvas>
     </div>
