@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { formatLength, parseLength } from '../../core/units.js';
 import {
   Info, List, MessageSquare, Settings, ChevronRight, ChevronDown,
   Box, Boxes, Component as ComponentIcon, Minus, Square,
@@ -22,7 +23,7 @@ function Panel({ title, icon: Icon, defaultOpen = true, children }) {
 }
 
 // ─── Entity Info ──────────────────────────────────────────────────────────────
-function EntityInfo({ model, selection }) {
+function EntityInfo({ model, selection, units, onEditEdgeLength, onEditVertexPosition }) {
   const first = [...selection][0];
   if (!first) {
     return <div style={{ color: 'var(--sk-text-light)', fontStyle: 'italic' }}>No selection</div>;
@@ -50,12 +51,20 @@ function EntityInfo({ model, selection }) {
 
   if (hit.kind === 'vertex') {
     const [x, y, z] = hit.entity.p;
+    const vid = hit.entity.id;
+    const commit = (idx, text) => {
+      const v = parseLength(text, units);
+      if (!isFinite(v)) return;
+      const p = [...hit.entity.p];
+      p[idx] = v;
+      onEditVertexPosition?.(vid, p);
+    };
     return (
       <>
         <Row label="Type" value="Vertex" />
-        <Row label="X" value={`${fmt(x)} m`} />
-        <Row label="Y" value={`${fmt(y)} m`} />
-        <Row label="Z" value={`${fmt(z)} m`} />
+        <EditableRow label="X" value={formatLength(x, units)} onCommit={(t) => commit(0, t)} />
+        <EditableRow label="Y" value={formatLength(y, units)} onCommit={(t) => commit(1, t)} />
+        <EditableRow label="Z" value={formatLength(z, units)} onCommit={(t) => commit(2, t)} />
       </>
     );
   }
@@ -66,22 +75,54 @@ function EntityInfo({ model, selection }) {
     return (
       <>
         <Row label="Type" value="Edge" />
-        <Row label="Length" value={`${fmt(len)} m`} />
+        <EditableRow
+          label="Length"
+          value={formatLength(len, units)}
+          onCommit={(t) => {
+            const v = parseLength(t, units);
+            if (isFinite(v) && v > 0) onEditEdgeLength?.(hit.entity.id, v);
+          }}
+        />
         <Row label="Faces" value={String(mesh.edgeFaces(hit.entity.id).size)} />
       </>
     );
   }
   if (hit.kind === 'face') {
     const n = hit.entity.normal;
+    const area = polygonArea3(hit.entity.loop.map((vid) => mesh.vertices.get(vid).p), n);
     return (
       <>
         <Row label="Type" value="Face" />
         <Row label="Vertices" value={String(hit.entity.loop.length)} />
+        <Row label="Area" value={formatArea(area, units)} />
         <Row label="Normal" value={`${fmt(n[0])}, ${fmt(n[1])}, ${fmt(n[2])}`} />
       </>
     );
   }
   return null;
+}
+
+function polygonArea3(pts, normal) {
+  if (pts.length < 3) return 0;
+  let cross = [0, 0, 0];
+  for (let i = 1; i < pts.length - 1; i++) {
+    const u = [pts[i][0]-pts[0][0], pts[i][1]-pts[0][1], pts[i][2]-pts[0][2]];
+    const v = [pts[i+1][0]-pts[0][0], pts[i+1][1]-pts[0][1], pts[i+1][2]-pts[0][2]];
+    cross[0] += u[1]*v[2] - u[2]*v[1];
+    cross[1] += u[2]*v[0] - u[0]*v[2];
+    cross[2] += u[0]*v[1] - u[1]*v[0];
+  }
+  const mag = Math.hypot(...cross);
+  const dot = cross[0]*normal[0] + cross[1]*normal[1] + cross[2]*normal[2];
+  return Math.abs(dot < 0 ? -mag/2 : mag/2);
+}
+
+function formatArea(m2, unit) {
+  const AREA_FACTORS = { mm: 1e6, cm: 1e4, m: 1, ft: 10.7639, in: 1550.0031 };
+  const AREA_LABELS  = { mm: 'mm²', cm: 'cm²', m: 'm²', ft: 'ft²', in: 'in²' };
+  const f = AREA_FACTORS[unit] || 1;
+  const prec = unit === 'm' ? 4 : unit === 'ft' ? 3 : 2;
+  return `${(m2 * f).toFixed(prec)} ${AREA_LABELS[unit] || 'm²'}`;
 }
 
 const fmt = (x) => (Math.round(x * 1000) / 1000).toString();
@@ -91,6 +132,37 @@ function Row({ label, value }) {
     <div className="sk-ei-row">
       <span className="sk-ei-label">{label}</span>
       <span className="sk-ei-value">{value}</span>
+    </div>
+  );
+}
+
+function EditableRow({ label, value, onCommit }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+
+  const open = useCallback(() => { setDraft(value); setEditing(true); }, [value]);
+  const commit = useCallback(() => { onCommit(draft); setEditing(false); }, [draft, onCommit]);
+
+  return (
+    <div className="sk-ei-row">
+      <span className="sk-ei-label">{label}</span>
+      {editing ? (
+        <input
+          className="sk-ei-edit"
+          value={draft}
+          autoFocus
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commit();
+            if (e.key === 'Escape') setEditing(false);
+          }}
+          onBlur={() => setEditing(false)}
+        />
+      ) : (
+        <span className="sk-ei-value sk-ei-editable" title="Click to edit" onClick={open}>
+          {value}
+        </span>
+      )}
     </div>
   );
 }
@@ -297,12 +369,21 @@ export default function RightTray({
   isLoading,
   aiConfig,
   onAiConfigChange,
+  units,
+  onEditEdgeLength,
+  onEditVertexPosition,
 }) {
   void version; // re-render driver
   return (
     <aside className="sk-tray">
       <Panel title="Entity Info" icon={Info} defaultOpen>
-        <EntityInfo model={model} selection={selection} />
+        <EntityInfo
+          model={model}
+          selection={selection}
+          units={units}
+          onEditEdgeLength={onEditEdgeLength}
+          onEditVertexPosition={onEditVertexPosition}
+        />
       </Panel>
 
       <Panel title="Outliner" icon={List} defaultOpen>

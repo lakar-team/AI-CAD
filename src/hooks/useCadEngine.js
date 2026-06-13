@@ -479,6 +479,29 @@ export function useCadEngine() {
     localStorage.setItem('lakar_units', unit);
   }, []);
 
+  // ── post-creation dimension editing ──────────────────────────────────────────
+
+  const editEdgeLength = useCallback((edgeId, newLengthMeters) => {
+    model.transact(() => {
+      const mesh = model.activeMesh();
+      const e = mesh.edges.get(edgeId);
+      if (!e) return;
+      const va = mesh.vertices.get(e.a)?.p;
+      const vb = mesh.vertices.get(e.b)?.p;
+      if (!va || !vb) return;
+      const dir = normalize(sub(vb, va));
+      mesh.moveVertices(new Map([[e.b, add(va, scale(dir, newLengthMeters))]]));
+    });
+    sync();
+  }, [model, sync]);
+
+  const editVertexPosition = useCallback((vertexId, localPt) => {
+    model.transact(() => {
+      model.activeMesh().moveVertices(new Map([[vertexId, localPt]]));
+    });
+    sync();
+  }, [model, sync]);
+
   // ── structure operations ──────────────────────────────────────────────────
 
   const makeGroupOrComponent = useCallback((isComponent) => {
@@ -583,6 +606,8 @@ export function useCadEngine() {
     submitMeasurement,
     selectByScreenBox,
     onGizmoAxisClick,
+    editEdgeLength,
+    editVertexPosition,
     makeGroup: () => makeGroupOrComponent(false),
     makeComponent: () => makeGroupOrComponent(true),
     explodeSelected,

@@ -142,6 +142,9 @@ export default function App() {
         isLoading={isAiLoading}
         aiConfig={aiConfig}
         onAiConfigChange={updateAiConfig}
+        units={engine.units}
+        onEditEdgeLength={engine.editEdgeLength}
+        onEditVertexPosition={engine.editVertexPosition}
       />
 
       <BottomBar

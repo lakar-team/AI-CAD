@@ -305,6 +305,25 @@ body, html, #root {
   border-color: var(--sk-accent);
 }
 
+.sk-ei-editable {
+  cursor: text;
+}
+.sk-ei-editable:hover {
+  border-color: var(--sk-accent);
+  background: #f0f8ff;
+}
+
+.sk-ei-edit {
+  flex: 1;
+  border: 1px solid var(--sk-accent);
+  border-radius: 2px;
+  padding: 1px 5px;
+  font-size: 11px;
+  font-family: monospace;
+  outline: none;
+  background: #fff;
+}
+
 /* Outliner */
 .sk-outliner-scroll {
   max-height: 200px;
