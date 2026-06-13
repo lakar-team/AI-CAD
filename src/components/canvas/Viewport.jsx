@@ -166,7 +166,7 @@ function PointerRig({
         return;
       }
       const { ray, radius } = makeRay(ev);
-      h.current.onClick(ray, radius, { shift: ev.shiftKey });
+      h.current.onClick(ray, radius, { shift: ev.shiftKey, ctrl: ev.ctrlKey });
     };
 
     const onDbl = (ev) => {

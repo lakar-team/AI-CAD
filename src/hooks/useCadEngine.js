@@ -13,7 +13,7 @@ import { inferPoint } from '../core/inference.js';
 import {
   add, sub, scale, normalize, distance,
   transformPoint, transformDirection,
-  rayLineClosest, Y_AXIS, multiplyM4,
+  rayLineClosest, Y_AXIS, multiplyM4, translationM4,
 } from '../core/math3.js';
 import { closeOverSelection } from '../core/model.js';
 import { rectCorners, circlePoints } from '../core/shapes.js';
@@ -161,7 +161,7 @@ export function useCadEngine() {
 
   // ── clicks ─────────────────────────────────────────────────────────────────
 
-  const onClick = useCallback((ray, radius, { shift = false } = {}) => {
+  const onClick = useCallback((ray, radius, { shift = false, ctrl = false } = {}) => {
     const t = ts.current;
 
     switch (activeTool) {
@@ -276,10 +276,21 @@ export function useCadEngine() {
             else break;
           }
           ts.current.anchor = { point: inf.point, inf };
+          ts.current.copySourceSel = new Set(selection);
         } else {
           const delta = sub(inf.point, t.anchor.point);
-          commitMove(model, selection, delta, toLocal, sync);
-          resetTool();
+          if (ctrl) {
+            // Ctrl = leave copy: clone at delta, originals stay, select new copies
+            const newIds = commitMoveCopy(model, t.copySourceSel || selection, delta, toLocal, sync);
+            ts.current.lastDelta = delta;
+            // Reset anchor to current point so Ctrl+click again chains copies
+            ts.current.anchor = { point: inf.point, inf };
+            setMeasurement(formatLength(distance([0, 0, 0], delta), units));
+            setSelection(newIds);
+          } else {
+            commitMove(model, selection, delta, toLocal, sync);
+            resetTool();
+          }
         }
         break;
       }
@@ -318,9 +329,37 @@ export function useCadEngine() {
   // ── typed measurements ("3", "2.5") ───────────────────────────────────────
 
   const submitMeasurement = useCallback((text) => {
+    const t = ts.current;
+
+    // Move/copy array: "*N" or "Nx" = N copies at lastDelta spacing
+    if (activeTool === 'move' && t.lastDelta && t.copySourceSel) {
+      const arrMatch = String(text).trim().match(/^\*(\d+)$|^(\d+)[x*]$/i);
+      if (arrMatch) {
+        const count = parseInt(arrMatch[1] || arrMatch[2], 10);
+        if (count >= 1) {
+          for (let i = 2; i <= count; i++) {
+            const d = scale(t.lastDelta, i);
+            commitMoveCopy(model, t.copySourceSel, d, toLocal, sync);
+          }
+          setMeasurement('');
+        }
+        return;
+      }
+      // Also accept plain distance to re-position the last copy along same direction
+      const dist = parseLength(text, units);
+      if (isFinite(dist) && dist > 0) {
+        const dir = normalize(t.lastDelta);
+        const newDelta = scale(dir, dist);
+        // move the currently selected copies to newDelta
+        commitMove(model, selection, sub(newDelta, t.lastDelta), toLocal, sync);
+        t.lastDelta = newDelta;
+        setMeasurement(formatLength(dist, units));
+      }
+      return;
+    }
+
     const value = parseLength(text, units);
     if (!isFinite(value) || value === 0) return;
-    const t = ts.current;
 
     if (activeTool === 'line' && t.anchor && t.lastInf) {
       const dir = normalize(sub(t.lastInf.point, t.anchor.point));
@@ -343,7 +382,7 @@ export function useCadEngine() {
       commitLoop(model, circlePoints(t.anchor, Math.abs(value)), toLocal, sync);
       resetTool();
     }
-  }, [activeTool, model, resolveVertex, resetTool, sync, toLocal, units]);
+  }, [activeTool, model, resolveVertex, resetTool, selection, sync, toLocal, units]);
 
   // ── box selection (window/crossing) ──────────────────────────────────────
 
@@ -638,6 +677,44 @@ function commitPushPull(model, t, sync) {
     pushPull(model.activeMesh(), t.faceId, t.dist);
   });
   sync();
+}
+
+function commitMoveCopy(model, selection, delta, toLocal, sync) {
+  const newIds = new Set();
+  if (distance(delta, [0, 0, 0]) < 1e-9) return newIds;
+  model.transact(() => {
+    const mesh = model.activeMesh();
+    const entityIds = [...selection].filter((id) => mesh.getEntity(id));
+    const instanceIds = [...selection].filter((id) => model.findInstance(id));
+
+    for (const id of instanceIds) {
+      const found = model.findInstance(id);
+      if (!found) continue;
+      const { instance } = found;
+      const newT = multiplyM4(translationM4(delta), instance.transform);
+      const newInst = model.insertInstance(instance.definitionId, newT);
+      newIds.add(newInst.id);
+    }
+
+    if (entityIds.length) {
+      const inv = model.activeMatrixInverse();
+      const localDelta = sub(transformPoint(inv, delta), transformPoint(inv, [0, 0, 0]));
+      const { vertices, edges } = closeOverSelection(mesh, entityIds);
+      const vmap = new Map();
+      for (const vid of vertices) {
+        const nv = mesh.addVertex(add(mesh.vertices.get(vid).p, localDelta));
+        vmap.set(vid, nv.id);
+        newIds.add(nv.id);
+      }
+      for (const eid of edges) {
+        const e = mesh.edges.get(eid);
+        const ne = mesh.addEdge(vmap.get(e.a), vmap.get(e.b));
+        if (ne) newIds.add(ne.id);
+      }
+    }
+  });
+  sync();
+  return newIds;
 }
 
 function commitMove(model, selection, delta, toLocal, sync) {

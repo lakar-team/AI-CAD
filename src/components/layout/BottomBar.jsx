@@ -4,7 +4,7 @@ const TOOL_HINTS = {
   rect: 'Click two opposite corners on the ground or on a face.',
   circle: 'Click the center, then a point on the radius (or type the radius + Enter).',
   eraser: 'Click an edge, face, vertex or group to delete it.',
-  move: 'Click a base point, then a destination. Works on selections and groups.',
+  move: 'Click anchor, then destination. Hold Ctrl to leave a copy. Type *N after copying for a linear array.',
   tape: 'Click two points to measure the distance.',
   pushpull: 'Click a face, drag along its normal, click again — or type a distance + Enter.',
   orbit: 'Drag with the left mouse button to orbit. Middle = orbit, right = pan (always).',
