@@ -16,7 +16,7 @@ const DEFAULT_AI_CONFIG = {
 };
 
 // Draw tools that support typed measurements
-const DRAW_TOOLS = new Set(['line', 'rect', 'circle', 'pushpull', 'move', 'tape', 'offset']);
+const DRAW_TOOLS = new Set(['line', 'rect', 'circle', 'pushpull', 'move', 'tape', 'offset', 'annotate']);
 
 export default function App() {
   const engine = useCadEngine();
@@ -126,6 +126,8 @@ export default function App() {
         measurement={engine.measurement}
         selectionCentroid={engine.selectionCentroid}
         guides={engine.guides}
+        annotations={engine.annotations}
+        units={engine.units}
         onPointerRay={engine.onPointerRay}
         onClick={engine.onClick}
         onDoubleClick={engine.onDoubleClick}

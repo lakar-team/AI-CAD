@@ -556,6 +556,21 @@ body, html, #root {
   opacity: 0.92;
 }
 
+/* ─── Dimension annotation label (rendered inside drei Html) ─────────────── */
+.sk-dim-label {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid #1155cc;
+  color: #1155cc;
+  font-size: 11px;
+  font-family: monospace;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 2px;
+  white-space: nowrap;
+  user-select: none;
+  pointer-events: none;
+}
+
 /* ─── Tool cursor feedback overlay ───────────────────────── */
 .sk-tool-hint {
   position: absolute;

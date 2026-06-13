@@ -1,6 +1,7 @@
 const TOOL_HINTS = {
   select: 'Click to select (Shift adds). Double-click group to enter. Ctrl+A = all; Q = connected; Shift+Q = coplanar faces; B = bounding edges.',
   offset: 'Click a face, then drag to set the offset distance — or type a value + Enter.',
+  annotate: 'Click two points to place a dimension annotation. Chains from last endpoint. Ctrl+Shift+D clears all.',
   line: 'Click points to draw edges — closed loops become faces. Type a length + Enter. Arrows lock axis.',
   rect: 'Click two opposite corners on the ground or on a face.',
   circle: 'Click the center, then a point on the radius (or type the radius + Enter).',

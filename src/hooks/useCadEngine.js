@@ -38,6 +38,8 @@ export function useCadEngine() {
   const [hoveredFaceId, setHoveredFaceId] = useState(null);
   const [guides, setGuides] = useState([]);
   const guideIdRef = useRef(0);
+  const [annotations, setAnnotations] = useState([]);
+  const annotIdRef = useRef(0);
   const [preview, setPreview] = useState(null); // viewport overlay description
 
   // transient per-tool state (never triggers renders by itself)
@@ -127,6 +129,14 @@ export function useCadEngine() {
       const hover = inf.type === 'on-face' && samePath(inf.instancePath) ? inf.entityId : null;
       setHoveredFaceId(hover);
       setInference(null);
+      return;
+    }
+
+    if (activeTool === 'annotate' && t.anchor) {
+      const inf = infer(ray, radius, { anchor: t.anchor.point });
+      setInference(inf);
+      setMeasurement(formatLength(distance(t.anchor.point, inf.point), units));
+      setPreview({ type: 'line', a: t.anchor.point, b: inf.point, dashed: true });
       return;
     }
 
@@ -254,6 +264,23 @@ export function useCadEngine() {
           const r = distance(t.anchor.point, inf.point);
           if (r > 1e-4) commitLoop(model, circlePoints(t.anchor, r), toLocal, sync);
           resetTool();
+        }
+        break;
+      }
+
+      case 'annotate': {
+        const inf = infer(ray, radius, { anchor: t.anchor?.point || null });
+        if (!t.anchor) {
+          ts.current.anchor = { point: inf.point, inf };
+        } else {
+          const dist = distance(t.anchor.point, inf.point);
+          if (dist > 1e-4) {
+            const id = ++annotIdRef.current;
+            setAnnotations((prev) => [...prev, { id, a: t.anchor.point, b: inf.point }]);
+            setMeasurement(formatLength(dist, units));
+          }
+          ts.current = { anchor: { point: inf.point, inf } }; // chain from end
+          setPreview(null);
         }
         break;
       }
@@ -569,6 +596,7 @@ export function useCadEngine() {
   }, []);
 
   const clearGuides = useCallback(() => setGuides([]), []);
+  const clearAnnotations = useCallback(() => setAnnotations([]), []);
 
   // ── post-creation dimension editing ──────────────────────────────────────────
 
@@ -720,6 +748,7 @@ export function useCadEngine() {
         if (key === 'y') { e.preventDefault(); redo(); }
         if (key === 'a') { e.preventDefault(); selectAll(); }
         if (key === 'g' && e.shiftKey) { e.preventDefault(); clearGuides(); }
+        if (key === 'd' && e.shiftKey) { e.preventDefault(); clearAnnotations(); }
         return;
       }
 
@@ -736,7 +765,7 @@ export function useCadEngine() {
         case 'Delete':
         case 'Backspace': deleteSelected(); break;
         default: {
-          const tools = { l: 'line', r: 'rect', c: 'circle', p: 'pushpull', m: 'move', e: 'eraser', t: 'tape', o: 'orbit', f: 'offset' };
+          const tools = { l: 'line', r: 'rect', c: 'circle', p: 'pushpull', m: 'move', e: 'eraser', t: 'tape', o: 'orbit', f: 'offset', d: 'annotate' };
           if (key === 'g') { e.shiftKey ? makeGroupOrComponent(true) : makeGroupOrComponent(false); }
           else if (key === 'q') { if (activeTool === 'select') { e.shiftKey ? selectCoplanar() : selectConnected(); } }
           else if (key === 'b') { if (activeTool === 'select') selectBoundingEdges(); }
@@ -746,7 +775,7 @@ export function useCadEngine() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [activateTool, clearGuides, deleteSelected, makeGroupOrComponent, model, redo, resetTool, selection, selectAll, selectBoundingEdges, selectCoplanar, selectConnected, sync, undo, activeTool]);
+  }, [activateTool, clearAnnotations, clearGuides, deleteSelected, makeGroupOrComponent, model, redo, resetTool, selection, selectAll, selectBoundingEdges, selectCoplanar, selectConnected, sync, undo, activeTool]);
 
   return {
     model,
@@ -763,6 +792,8 @@ export function useCadEngine() {
     changeUnits,
     guides,
     clearGuides,
+    annotations,
+    clearAnnotations,
     hoveredFaceId,
     preview,
     selectionCentroid,

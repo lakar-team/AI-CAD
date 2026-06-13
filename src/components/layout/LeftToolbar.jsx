@@ -1,6 +1,6 @@
 import {
   MousePointer2, Eraser, Pencil, Square, Circle,
-  Maximize, Move, Ruler, Rotate3d, RectangleHorizontal,
+  Maximize, Move, Ruler, Rotate3d, RectangleHorizontal, RulerDimensionLine,
 } from 'lucide-react';
 
 const TOOLS = [
@@ -16,6 +16,7 @@ const TOOLS = [
   { id: 'offset', icon: RectangleHorizontal, label: 'Offset', key: 'F' },
   { sep: true },
   { id: 'tape', icon: Ruler, label: 'Tape Measure', key: 'T' },
+  { id: 'annotate', icon: RulerDimensionLine, label: 'Dimension', key: 'D' },
   { id: 'orbit', icon: Rotate3d, label: 'Orbit (left-drag)', key: 'O' },
 ];
 

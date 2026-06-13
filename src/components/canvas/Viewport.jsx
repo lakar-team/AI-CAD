@@ -10,10 +10,11 @@
 
 import React, { useMemo, useRef, useState, useCallback, useEffect } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
-import { OrbitControls, GizmoHelper, GizmoViewport, Line } from '@react-three/drei';
+import { OrbitControls, GizmoHelper, GizmoViewport, Line, Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { triangulateLoop } from '../../core/triangulate.js';
-import { add, scale, multiplyM4, identityM4, transformPoint } from '../../core/math3.js';
+import { add, sub, scale, normalize, cross, multiplyM4, identityM4, transformPoint, distance } from '../../core/math3.js';
+import { formatLength } from '../../core/units.js';
 import { AXIS_COLORS } from '../../core/inference.js';
 
 const SNAP_PIXELS = 9;
@@ -485,6 +486,56 @@ const CURSORS = {
   orbit: 'grab',
 };
 
+const UP = [0, 1, 0];
+const TICK = 0.08; // tick mark half-length in meters
+
+function DimensionAnnotations({ annotations, units }) {
+  if (!annotations || annotations.length === 0) return null;
+  return (
+    <>
+      {annotations.map((ann) => {
+        const { a, b } = ann;
+        const mid = [
+          (a[0] + b[0]) / 2,
+          (a[1] + b[1]) / 2,
+          (a[2] + b[2]) / 2,
+        ];
+        const dir = normalize(sub(b, a));
+        // perp tick direction: prefer Y-up perpendicular, fall back to X
+        const perp = normalize(cross(dir, UP));
+        const tickDir = (perp[0] === 0 && perp[1] === 0 && perp[2] === 0)
+          ? normalize(cross(dir, [1, 0, 0]))
+          : perp;
+        const ta = scale(tickDir, TICK);
+        const len = distance(a, b);
+
+        return (
+          <group key={ann.id}>
+            <Line points={[a, b]} color="#1155cc" lineWidth={1} />
+            <Line
+              points={[
+                [a[0] - ta[0], a[1] - ta[1], a[2] - ta[2]],
+                [a[0] + ta[0], a[1] + ta[1], a[2] + ta[2]],
+              ]}
+              color="#1155cc" lineWidth={1.5}
+            />
+            <Line
+              points={[
+                [b[0] - ta[0], b[1] - ta[1], b[2] - ta[2]],
+                [b[0] + ta[0], b[1] + ta[1], b[2] + ta[2]],
+              ]}
+              color="#1155cc" lineWidth={1.5}
+            />
+            <Html position={mid} center style={{ pointerEvents: 'none' }}>
+              <div className="sk-dim-label">{formatLength(len, units)}</div>
+            </Html>
+          </group>
+        );
+      })}
+    </>
+  );
+}
+
 function GuideLines({ guides }) {
   if (!guides || guides.length === 0) return null;
   return (
@@ -515,6 +566,8 @@ export default function Viewport({
   measurement,
   selectionCentroid,
   guides,
+  annotations,
+  units,
   onPointerRay,
   onClick,
   onDoubleClick,
@@ -604,6 +657,7 @@ export default function Viewport({
         <InferenceMarker inference={inference} />
         <PreviewOverlay preview={preview} />
         <GuideLines guides={guides} />
+        <DimensionAnnotations annotations={annotations} units={units} />
         <SelectionGizmo
           centroid={selectionCentroid}
           activeTool={activeTool}
