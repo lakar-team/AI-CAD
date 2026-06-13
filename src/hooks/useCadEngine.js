@@ -581,6 +581,75 @@ export function useCadEngine() {
   const undo = useCallback(() => { model.undo(); setSelection(new Set()); resetTool(); sync(); }, [model, resetTool, sync]);
   const redo = useCallback(() => { model.redo(); setSelection(new Set()); resetTool(); sync(); }, [model, resetTool, sync]);
 
+  // ── selection filters ─────────────────────────────────────────────────────
+
+  const selectAll = useCallback(() => {
+    const mesh = model.activeMesh();
+    const def = model.activeDefinition();
+    const s = new Set();
+    for (const v of mesh.vertices.values()) s.add(v.id);
+    for (const e of mesh.edges.values()) s.add(e.id);
+    for (const f of mesh.faces.values()) s.add(f.id);
+    for (const inst of def.children) s.add(inst.id);
+    setSelection(s);
+  }, [model]);
+
+  const selectConnected = useCallback(() => {
+    if (selection.size === 0) return;
+    const mesh = model.activeMesh();
+    const visitedV = new Set();
+    const queue = [];
+    const pushV = (vid) => { if (!visitedV.has(vid)) { visitedV.add(vid); queue.push(vid); } };
+
+    for (const id of selection) {
+      if (mesh.vertices.has(id)) pushV(id);
+      else if (mesh.edges.has(id)) { const e = mesh.edges.get(id); pushV(e.a); pushV(e.b); }
+      else if (mesh.faces.has(id)) { for (const vid of mesh.faces.get(id).loop) pushV(vid); }
+    }
+    while (queue.length) {
+      const vid = queue.shift();
+      for (const eid of mesh.vertexEdges(vid)) {
+        const e = mesh.edges.get(eid);
+        pushV(e.a === vid ? e.b : e.a);
+      }
+    }
+    const s = new Set();
+    for (const vid of visitedV) { s.add(vid); }
+    for (const e of mesh.edges.values()) { if (visitedV.has(e.a) && visitedV.has(e.b)) s.add(e.id); }
+    for (const f of mesh.faces.values()) { if (f.loop.every((vid) => visitedV.has(vid))) s.add(f.id); }
+    setSelection(s);
+  }, [model, selection]);
+
+  const selectBoundingEdges = useCallback(() => {
+    const mesh = model.activeMesh();
+    const s = new Set();
+    for (const id of selection) {
+      if (mesh.faces.has(id)) {
+        for (const eid of mesh.faceEdgeIds(id)) s.add(eid);
+      }
+    }
+    if (s.size > 0) setSelection(s);
+  }, [model, selection]);
+
+  const selectCoplanar = useCallback(() => {
+    const mesh = model.activeMesh();
+    const normals = [];
+    for (const id of selection) {
+      if (mesh.faces.has(id)) normals.push(mesh.faces.get(id).normal);
+    }
+    if (normals.length === 0) return;
+    const tol = 1e-4;
+    const s = new Set();
+    for (const f of mesh.faces.values()) {
+      if (normals.some((n) =>
+        Math.abs(n[0] - f.normal[0]) < tol &&
+        Math.abs(n[1] - f.normal[1]) < tol &&
+        Math.abs(n[2] - f.normal[2]) < tol
+      )) s.add(f.id);
+    }
+    if (s.size > 0) setSelection(s);
+  }, [model, selection]);
+
   const replaceModel = useCallback((newModel) => {
     setModel(newModel);
     setSelection(new Set());
@@ -597,6 +666,7 @@ export function useCadEngine() {
       if (e.ctrlKey || e.metaKey) {
         if (key === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
         if (key === 'y') { e.preventDefault(); redo(); }
+        if (key === 'a') { e.preventDefault(); selectAll(); }
         return;
       }
 
@@ -615,13 +685,15 @@ export function useCadEngine() {
         default: {
           const tools = { l: 'line', r: 'rect', c: 'circle', p: 'pushpull', m: 'move', e: 'eraser', t: 'tape' };
           if (key === 'g') { e.shiftKey ? makeGroupOrComponent(true) : makeGroupOrComponent(false); }
+          else if (key === 'q') { if (activeTool === 'select') selectConnected(); }
+          else if (key === 'f') { if (activeTool === 'select') { e.shiftKey ? selectCoplanar() : selectBoundingEdges(); } }
           else if (tools[key]) activateTool(tools[key]);
         }
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [activateTool, deleteSelected, makeGroupOrComponent, model, redo, resetTool, selection, sync, undo]);
+  }, [activateTool, deleteSelected, makeGroupOrComponent, model, redo, resetTool, selection, selectAll, selectBoundingEdges, selectCoplanar, selectConnected, sync, undo, activeTool]);
 
   return {
     model,

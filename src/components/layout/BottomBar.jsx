@@ -1,5 +1,5 @@
 const TOOL_HINTS = {
-  select: 'Click to select (Shift adds). Double-click a group/component to edit inside it. Delete removes.',
+  select: 'Click to select (Shift adds). Double-click group to enter. Ctrl+A = all; Q = connected; F = bounding edges; Shift+F = coplanar.',
   line: 'Click points to draw edges — closed loops become faces. Type a length + Enter. Arrows lock axis.',
   rect: 'Click two opposite corners on the ground or on a face.',
   circle: 'Click the center, then a point on the radius (or type the radius + Enter).',
