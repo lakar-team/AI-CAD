@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import TopBar from './components/layout/TopBar';
 import LeftToolbar from './components/layout/LeftToolbar';
 import RightTray from './components/layout/RightTray';
@@ -15,9 +15,32 @@ const DEFAULT_AI_CONFIG = {
   baseUrl: 'http://localhost:11434',
 };
 
+// Draw tools that support typed measurements
+const DRAW_TOOLS = new Set(['line', 'rect', 'circle', 'pushpull', 'move', 'tape']);
+
 export default function App() {
   const engine = useCadEngine();
   const { model, version } = engine;
+
+  // Ref to the VCB measurement input (for auto-focus on digit keypress)
+  const measurementInputRef = useRef(null);
+
+  // Auto-focus the measurement input when the user types a digit/decimal
+  // while a draw tool is active and no input is already focused.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (!DRAW_TOOLS.has(engine.activeTool)) return;
+      if (/^[\d.\-]$/.test(e.key)) {
+        const inp = measurementInputRef.current;
+        if (inp) inp.focus();
+      }
+    };
+    // Use capture so this fires before useCadEngine's keydown handler
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [engine.activeTool]);
 
   // ── AI assistant (reads the same scene graph the engine edits) ────────────
   const [aiConfig, setAiConfig] = useState(() => {
@@ -27,7 +50,7 @@ export default function App() {
   const [chatHistory, setChatHistory] = useState([
     {
       role: 'ai',
-      text: '👋 Lakar CAD ready.\n\n• Line (L) / Rectangle (R) / Circle (C): closed loops become faces\n• Push/Pull (P): click a face, drag, click (or type a distance)\n• Move (M), Tape (T), Eraser (E)\n• G = group selection, Shift+G = component, double-click to edit inside\n• Arrow keys lock to the red/blue/green axes\n• File menu: save .json, export OBJ / STL / GLB',
+      text: '👋 Lakar CAD ready.\n\n• Line (L) / Rectangle (R) / Circle (C): closed loops become faces\n• Push/Pull (P): click a face, drag, click (or type a distance)\n• Move (M), Tape (T), Eraser (E)\n• G = group selection, Shift+G = component, double-click to edit inside\n• Arrow keys lock to the red/blue/green axes\n• Box-drag left→right to window-select (solid blue), right→left to crossing-select (dashed green)\n• File menu: save .json, export OBJ / STL / GLB',
     },
   ]);
   const [isAiLoading, setIsAiLoading] = useState(false);
@@ -101,9 +124,12 @@ export default function App() {
         inference={engine.inference}
         preview={engine.preview}
         hoveredFaceId={engine.hoveredFaceId}
+        measurement={engine.measurement}
+        selectionCentroid={engine.selectionCentroid}
         onPointerRay={engine.onPointerRay}
         onClick={engine.onClick}
         onDoubleClick={engine.onDoubleClick}
+        onBoxSelect={engine.selectByScreenBox}
       />
 
       <RightTray
@@ -124,6 +150,7 @@ export default function App() {
         measurement={engine.measurement}
         onMeasurementChange={engine.setMeasurement}
         onMeasurementSubmit={engine.submitMeasurement}
+        inputRef={measurementInputRef}
       />
     </div>
   );

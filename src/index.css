@@ -480,6 +480,47 @@ body, html, #root {
   text-align: right;
 }
 
+/* ─── Selection box overlay (window = solid blue, crossing = dashed green) ─ */
+.sk-sel-box {
+  position: absolute;
+  pointer-events: none;
+  z-index: 50;
+}
+.sk-sel-box.window {
+  border: 1px solid #1a9fdc;
+  background: rgba(26, 159, 220, 0.06);
+}
+.sk-sel-box.crossing {
+  border: 1px dashed #2a2;
+  background: rgba(42, 170, 42, 0.06);
+}
+
+/* ─── Floating cursor label (measurement + inference type) ─────────────── */
+.sk-cursor-label {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.74);
+  color: #fff;
+  font-size: 11px;
+  padding: 3px 8px 4px;
+  border-radius: 3px;
+  pointer-events: none;
+  z-index: 200;
+  line-height: 1.55;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.sk-cursor-measurement {
+  font-family: monospace;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.sk-cursor-inference {
+  font-size: 10px;
+  opacity: 0.92;
+}
+
 /* ─── Tool cursor feedback overlay ───────────────────────── */
 .sk-tool-hint {
   position: absolute;

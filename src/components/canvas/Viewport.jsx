@@ -4,10 +4,11 @@
  * All picking/snapping happens in the core inference engine (src/core), so
  * this component's job is: render the model (recursively through instances),
  * convert pointer events into world-space rays for the hook, and draw the
- * overlay graphics (inference marker, ghost lines, previews).
+ * overlay graphics (inference marker, ghost lines, previews, selection box,
+ * cursor measurement label, selection gizmo).
  */
 
-import React, { useMemo, useRef, useEffect } from 'react';
+import React, { useMemo, useRef, useState, useCallback, useEffect } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, GizmoHelper, GizmoViewport, Line } from '@react-three/drei';
 import * as THREE from 'three';
@@ -27,60 +28,113 @@ const INFERENCE_COLORS = {
   free: '#bbb',
 };
 
-// ─── pointer → world ray plumbing ────────────────────────────────────────────
-function PointerRig({ onRay, onClick, onDoubleClick }) {
-  const { gl, camera, size } = useThree();
-  const handlers = useRef({ onRay, onClick, onDoubleClick, camera, size });
+const INFERENCE_LABELS = {
+  endpoint: 'Endpoint',
+  midpoint: 'Midpoint',
+  'on-edge': 'On Edge',
+  'on-face': 'On Face',
+  axis: 'On Axis',
+};
 
-  useEffect(() => {
-    handlers.current = { onRay, onClick, onDoubleClick, camera, size };
-  }, [onRay, onClick, onDoubleClick, camera, size]);
+function inferenceColor(inf) {
+  if (!inf) return '#bbb';
+  return inf.axis ? AXIS_COLORS[inf.axis] : (INFERENCE_COLORS[inf.type] || '#bbb');
+}
+
+// ─── pointer → world ray + box drag detection ─────────────────────────────────
+function PointerRig({ onRay, onClick, onDoubleClick, onBoxSelect, onBoxDrag, enableBoxSelect }) {
+  const { gl, camera, size } = useThree();
+
+  // All callbacks in a ref so the single DOM-listener effect never re-runs
+  const h = useRef({});
+  h.current = { onRay, onClick, onDoubleClick, onBoxSelect, onBoxDrag, enableBoxSelect, camera, size };
 
   useEffect(() => {
     const el = gl.domElement;
-    const down = { x: 0, y: 0, moved: false };
+    const down = { x: 0, y: 0, moved: false, dragging: false };
     const raycaster = new THREE.Raycaster();
     const ndc = new THREE.Vector2();
 
     const makeRay = (ev) => {
-      const { camera, size } = handlers.current;
+      const { camera: cam, size: sz } = h.current;
       const rect = el.getBoundingClientRect();
       ndc.set(
         ((ev.clientX - rect.left) / rect.width) * 2 - 1,
         -((ev.clientY - rect.top) / rect.height) * 2 + 1,
       );
-      raycaster.setFromCamera(ndc, camera);
+      raycaster.setFromCamera(ndc, cam);
       const o = raycaster.ray.origin;
       const d = raycaster.ray.direction;
-      // world-space snap radius ≈ SNAP_PIXELS at the camera's focus distance
       const dist = Math.max(1, o.length());
-      const worldPerPixel = (2 * dist * Math.tan((camera.fov * Math.PI) / 360)) / size.height;
+      const worldPerPixel = (2 * dist * Math.tan((cam.fov * Math.PI) / 360)) / sz.height;
       return {
         ray: { origin: [o.x, o.y, o.z], dir: [d.x, d.y, d.z] },
         radius: SNAP_PIXELS * worldPerPixel,
       };
     };
 
-    const onPointerMove = (ev) => {
-      if (ev.buttons & 6) return; // orbiting / panning
-      const { ray, radius } = makeRay(ev);
-      if (Math.abs(ev.clientX - down.x) + Math.abs(ev.clientY - down.y) > 4) down.moved = true;
-      handlers.current.onRay(ray, radius);
+    // Snapshot the camera projection at the moment of release for box-select
+    const makeProject = () => {
+      const { camera: cam, size: sz } = h.current;
+      return (worldPt) => {
+        const v = new THREE.Vector3(worldPt[0], worldPt[1], worldPt[2]);
+        v.project(cam);
+        if (v.z > 1) return null; // behind near plane
+        return { x: (v.x + 1) / 2 * sz.width, y: (1 - v.y) / 2 * sz.height };
+      };
     };
+
+    const onPointerMove = (ev) => {
+      if (ev.buttons & 6) return; // middle/right = orbit/pan
+      const dx = ev.clientX - down.x;
+      const dy = ev.clientY - down.y;
+      if (Math.abs(dx) + Math.abs(dy) > 4) down.moved = true;
+
+      // Box drag: left button held + significant move + select tool
+      if (ev.buttons === 1 && down.moved && h.current.enableBoxSelect) {
+        if (!down.dragging) down.dragging = true;
+        const rect = el.getBoundingClientRect();
+        h.current.onBoxDrag?.({
+          x1: down.x - rect.left,
+          y1: down.y - rect.top,
+          x2: ev.clientX - rect.left,
+          y2: ev.clientY - rect.top,
+        });
+        return; // suppress onRay while box-dragging
+      }
+
+      const { ray, radius } = makeRay(ev);
+      h.current.onRay(ray, radius);
+    };
+
     const onPointerDown = (ev) => {
       if (ev.button !== 0) return;
       down.x = ev.clientX;
       down.y = ev.clientY;
       down.moved = false;
+      down.dragging = false;
     };
+
     const onPointerUp = (ev) => {
-      if (ev.button !== 0 || down.moved) return;
+      if (ev.button !== 0) return;
+      if (down.dragging) {
+        const rect = el.getBoundingClientRect();
+        const x1 = down.x - rect.left, y1 = down.y - rect.top;
+        const x2 = ev.clientX - rect.left, y2 = ev.clientY - rect.top;
+        const direction = x2 >= x1 ? 'window' : 'crossing';
+        h.current.onBoxSelect?.({ x1, y1, x2, y2 }, direction, makeProject());
+        h.current.onBoxDrag?.(null); // clear overlay
+        down.dragging = false;
+        return;
+      }
+      if (down.moved) return;
       const { ray, radius } = makeRay(ev);
-      handlers.current.onClick(ray, radius, { shift: ev.shiftKey });
+      h.current.onClick(ray, radius, { shift: ev.shiftKey });
     };
+
     const onDbl = (ev) => {
       const { ray, radius } = makeRay(ev);
-      handlers.current.onDoubleClick(ray, radius);
+      h.current.onDoubleClick(ray, radius);
     };
 
     el.addEventListener('pointermove', onPointerMove);
@@ -132,9 +186,6 @@ const Grid = React.memo(function Grid() {
 
 // ─── model rendering ─────────────────────────────────────────────────────────
 
-/**
- * Flatten the model into render batches. Recomputed when model.version bumps.
- */
 function useRenderData(model, version, selection, hoveredFaceId) {
   return useMemo(() => {
     void version;
@@ -272,7 +323,7 @@ function InferenceMarker({ inference }) {
   );
 }
 
-function PreviewOverlay({ preview, model }) {
+function PreviewOverlay({ preview }) {
   if (!preview) return null;
 
   if (preview.type === 'line' || preview.type === 'move') {
@@ -312,8 +363,34 @@ function PreviewOverlay({ preview, model }) {
     );
   }
 
-  void model;
   return null;
+}
+
+// ─── selection gizmo ─────────────────────────────────────────────────────────
+
+function SelectionGizmo({ centroid, activeTool }) {
+  if (!centroid || activeTool !== 'select') return null;
+  const S = 0.7; // arrow length in world units
+  return (
+    <group position={centroid}>
+      <Line points={[[0, 0, 0], [S, 0, 0]]} color={AXIS_COLORS.x} lineWidth={2.5} />
+      <Line points={[[0, 0, 0], [0, S, 0]]} color={AXIS_COLORS.y} lineWidth={2.5} />
+      <Line points={[[0, 0, 0], [0, 0, S]]} color={AXIS_COLORS.z} lineWidth={2.5} />
+      {/* Arrowhead dots */}
+      <mesh position={[S, 0, 0]} renderOrder={25}>
+        <sphereGeometry args={[0.055, 8, 8]} />
+        <meshBasicMaterial color={AXIS_COLORS.x} depthTest={false} />
+      </mesh>
+      <mesh position={[0, S, 0]} renderOrder={25}>
+        <sphereGeometry args={[0.055, 8, 8]} />
+        <meshBasicMaterial color={AXIS_COLORS.y} depthTest={false} />
+      </mesh>
+      <mesh position={[0, 0, S]} renderOrder={25}>
+        <sphereGeometry args={[0.055, 8, 8]} />
+        <meshBasicMaterial color={AXIS_COLORS.z} depthTest={false} />
+      </mesh>
+    </group>
+  );
 }
 
 // ─── main viewport ────────────────────────────────────────────────────────────
@@ -338,12 +415,46 @@ export default function Viewport({
   inference,
   preview,
   hoveredFaceId,
+  measurement,
+  selectionCentroid,
   onPointerRay,
   onClick,
   onDoubleClick,
+  onBoxSelect,
 }) {
+  // Canvas container ref for bounding-rect lookups
+  const canvasRef = useRef(null);
+
+  // Cursor position (canvas-relative) for floating label
+  const [cursorPos, setCursorPos] = useState(null);
+
+  // Box drag state for selection box overlay
+  const [boxDrag, setBoxDrag] = useState(null);
+
+  const handleMouseMove = useCallback((e) => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (rect) setCursorPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
+  }, []);
+
+  const handleMouseLeave = useCallback(() => {
+    setCursorPos(null);
+  }, []);
+
+  // Derived box style
+  const boxDirection = boxDrag ? (boxDrag.x2 >= boxDrag.x1 ? 'window' : 'crossing') : null;
+
+  // Should cursor label show?
+  const showInferenceLabel = inference && INFERENCE_LABELS[inference.type];
+  const showCursorLabel = cursorPos && (measurement || showInferenceLabel);
+
   return (
-    <div className="sk-canvas" style={{ cursor: CURSORS[activeTool] || 'default' }}>
+    <div
+      className="sk-canvas"
+      ref={canvasRef}
+      style={{ cursor: CURSORS[activeTool] || 'default' }}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
+    >
       <Canvas
         gl={{ antialias: true }}
         dpr={[1, 2]}
@@ -364,7 +475,14 @@ export default function Viewport({
         <directionalLight position={[-6, 4, -8]} intensity={0.5} />
 
         <Grid />
-        <PointerRig onRay={onPointerRay} onClick={onClick} onDoubleClick={onDoubleClick} />
+        <PointerRig
+          onRay={onPointerRay}
+          onClick={onClick}
+          onDoubleClick={onDoubleClick}
+          onBoxSelect={onBoxSelect}
+          onBoxDrag={setBoxDrag}
+          enableBoxSelect={activeTool === 'select'}
+        />
         <ModelRender
           model={model}
           version={version}
@@ -372,7 +490,8 @@ export default function Viewport({
           hoveredFaceId={hoveredFaceId}
         />
         <InferenceMarker inference={inference} />
-        <PreviewOverlay preview={preview} model={model} />
+        <PreviewOverlay preview={preview} />
+        <SelectionGizmo centroid={selectionCentroid} activeTool={activeTool} />
 
         <GizmoHelper alignment="bottom-right" margin={[72, 72]}>
           <GizmoViewport
@@ -381,6 +500,39 @@ export default function Viewport({
           />
         </GizmoHelper>
       </Canvas>
+
+      {/* Selection box overlay */}
+      {boxDrag && (
+        <div
+          className={`sk-sel-box ${boxDirection}`}
+          style={{
+            left: Math.min(boxDrag.x1, boxDrag.x2),
+            top: Math.min(boxDrag.y1, boxDrag.y2),
+            width: Math.abs(boxDrag.x2 - boxDrag.x1),
+            height: Math.abs(boxDrag.y2 - boxDrag.y1),
+          }}
+        />
+      )}
+
+      {/* Floating cursor label: measurement + inference type */}
+      {showCursorLabel && (
+        <div
+          className="sk-cursor-label"
+          style={{ left: cursorPos.x + 16, top: cursorPos.y + 6 }}
+        >
+          {measurement && (
+            <div className="sk-cursor-measurement">{measurement}</div>
+          )}
+          {showInferenceLabel && (
+            <div
+              className="sk-cursor-inference"
+              style={{ color: inferenceColor(inference) }}
+            >
+              {INFERENCE_LABELS[inference.type]}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

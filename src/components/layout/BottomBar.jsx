@@ -18,6 +18,7 @@ export default function BottomBar({
   measurement,
   onMeasurementChange,
   onMeasurementSubmit,
+  inputRef,
 }) {
   return (
     <footer className="sk-bottombar">
@@ -30,6 +31,7 @@ export default function BottomBar({
       <div className="sk-measurements">
         <span className="sk-measurements-label">Measurements</span>
         <input
+          ref={inputRef}
           className="sk-measurements-input"
           type="text"
           value={measurement}
@@ -37,6 +39,9 @@ export default function BottomBar({
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
               onMeasurementSubmit(e.target.value);
+              e.target.blur();
+            }
+            if (e.key === 'Escape') {
               e.target.blur();
             }
           }}

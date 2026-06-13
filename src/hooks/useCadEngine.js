@@ -6,14 +6,14 @@
  * geometry change goes through model.transact() so undo/redo always works.
  */
 
-import { useRef, useState, useCallback, useEffect } from 'react';
+import { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import { CadModel } from '../core/model.js';
 import { pushPull } from '../core/pushpull.js';
 import { inferPoint } from '../core/inference.js';
 import {
   add, sub, scale, normalize, distance,
   transformPoint, transformDirection,
-  rayLineClosest, Y_AXIS,
+  rayLineClosest, Y_AXIS, multiplyM4,
 } from '../core/math3.js';
 import { closeOverSelection } from '../core/model.js';
 import { rectCorners, circlePoints } from '../core/shapes.js';
@@ -23,6 +23,9 @@ export function useCadEngine() {
 
   const [, setTick] = useState(0);
   const sync = useCallback(() => setTick((n) => n + 1), []);
+
+  // version tracks model mutations for useMemo deps
+  const version = model.version;
 
   const [activeTool, setTool] = useState('select');
   const [selection, setSelection] = useState(() => new Set()); // entity OR instance ids
@@ -340,6 +343,128 @@ export function useCadEngine() {
     }
   }, [activeTool, model, resolveVertex, resetTool, sync, toLocal]);
 
+  // ── box selection (window/crossing) ──────────────────────────────────────
+
+  /**
+   * Called by Viewport when a box-drag completes in select mode.
+   * project(worldPt) → {x, y} in canvas pixels (from Three.js camera).
+   */
+  const selectByScreenBox = useCallback((rect, direction, project) => {
+    if (activeTool !== 'select') return;
+    const { x1, y1, x2, y2 } = rect;
+    const minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
+    const minY = Math.min(y1, y2), maxY = Math.max(y1, y2);
+
+    const inRect = (p) => p !== null && p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY;
+
+    const activeMatrix = model.activeMatrix();
+    const mesh = model.activeMesh();
+    const activeDef = model.activeDefinition();
+    const newSel = new Set();
+
+    const proj = (localPt) => {
+      try { return project(transformPoint(activeMatrix, localPt)); }
+      catch { return null; }
+    };
+
+    if (direction === 'window') {
+      // fully enclosed
+      for (const v of mesh.vertices.values()) {
+        if (inRect(proj(v.p))) newSel.add(v.id);
+      }
+      for (const e of mesh.edges.values()) {
+        const va = mesh.vertices.get(e.a), vb = mesh.vertices.get(e.b);
+        if (va && vb && inRect(proj(va.p)) && inRect(proj(vb.p))) newSel.add(e.id);
+      }
+      for (const f of mesh.faces.values()) {
+        if (f.loop.every((vid) => {
+          const v = mesh.vertices.get(vid);
+          return v && inRect(proj(v.p));
+        })) newSel.add(f.id);
+      }
+      for (const inst of activeDef.children) {
+        const iDef = model.definitions.get(inst.definitionId);
+        if (!iDef) continue;
+        const iM = multiplyM4(activeMatrix, inst.transform);
+        if ([...iDef.mesh.vertices.values()].every((v) => {
+          try { return inRect(project(transformPoint(iM, v.p))); }
+          catch { return false; }
+        })) newSel.add(inst.id);
+      }
+    } else {
+      // touching / crossing
+      for (const v of mesh.vertices.values()) {
+        if (inRect(proj(v.p))) newSel.add(v.id);
+      }
+      for (const e of mesh.edges.values()) {
+        const va = mesh.vertices.get(e.a), vb = mesh.vertices.get(e.b);
+        if (!va || !vb) continue;
+        const pa = proj(va.p), pb = proj(vb.p);
+        if (inRect(pa) || inRect(pb) || seg2dCrossesRect(pa, pb, minX, minY, maxX, maxY))
+          newSel.add(e.id);
+      }
+      for (const f of mesh.faces.values()) {
+        if (f.loop.some((vid) => {
+          const v = mesh.vertices.get(vid);
+          return v && inRect(proj(v.p));
+        })) newSel.add(f.id);
+      }
+      for (const inst of activeDef.children) {
+        const iDef = model.definitions.get(inst.definitionId);
+        if (!iDef) continue;
+        const iM = multiplyM4(activeMatrix, inst.transform);
+        if ([...iDef.mesh.vertices.values()].some((v) => {
+          try { return inRect(project(transformPoint(iM, v.p))); }
+          catch { return false; }
+        })) newSel.add(inst.id);
+      }
+    }
+
+    setSelection(newSel);
+  }, [activeTool, model]);
+
+  // ── selection centroid (for gizmo display) ────────────────────────────────
+
+  const selectionCentroid = useMemo(() => {
+    if (selection.size === 0) return null;
+    const mesh = model.activeMesh();
+    const activeMatrix = model.activeMatrix();
+    const activeDef = model.activeDefinition();
+    const pts = [];
+
+    for (const id of selection) {
+      if (mesh.vertices.has(id)) {
+        pts.push(transformPoint(activeMatrix, mesh.vertices.get(id).p));
+      } else if (mesh.edges.has(id)) {
+        const e = mesh.edges.get(id);
+        const va = mesh.vertices.get(e.a), vb = mesh.vertices.get(e.b);
+        if (va) pts.push(transformPoint(activeMatrix, va.p));
+        if (vb) pts.push(transformPoint(activeMatrix, vb.p));
+      } else if (mesh.faces.has(id)) {
+        const f = mesh.faces.get(id);
+        for (const vid of f.loop) {
+          const v = mesh.vertices.get(vid);
+          if (v) pts.push(transformPoint(activeMatrix, v.p));
+        }
+      } else {
+        const inst = activeDef.children.find((c) => c.id === id);
+        if (inst) {
+          const iDef = model.definitions.get(inst.definitionId);
+          const iM = multiplyM4(activeMatrix, inst.transform);
+          if (iDef) {
+            for (const v of iDef.mesh.vertices.values()) {
+              pts.push(transformPoint(iM, v.p));
+            }
+          }
+        }
+      }
+    }
+
+    if (!pts.length) return null;
+    const sum = pts.reduce((acc, p) => [acc[0] + p[0], acc[1] + p[1], acc[2] + p[2]], [0, 0, 0]);
+    return [sum[0] / pts.length, sum[1] / pts.length, sum[2] / pts.length];
+  }, [model, version, selection]);
+
   // ── structure operations ──────────────────────────────────────────────────
 
   const makeGroupOrComponent = useCallback((isComponent) => {
@@ -435,10 +560,12 @@ export function useCadEngine() {
     setMeasurement,
     hoveredFaceId,
     preview,
+    selectionCentroid,
     onPointerRay,
     onClick,
     onDoubleClick,
     submitMeasurement,
+    selectByScreenBox,
     makeGroup: () => makeGroupOrComponent(false),
     makeComponent: () => makeGroupOrComponent(true),
     explodeSelected,
@@ -465,7 +592,6 @@ function commitLoop(model, worldPoints, toLocal, sync) {
 
 function commitPushPull(model, t, sync) {
   if (!t.faceId || !t.dist || Math.abs(t.dist) < 1e-4) return;
-  // t.dist is measured along the WORLD normal; convert to the local normal sign
   model.transact(() => {
     pushPull(model.activeMesh(), t.faceId, t.dist);
   });
@@ -480,7 +606,6 @@ function commitMove(model, selection, delta, toLocal, sync) {
     const instanceIds = [...selection].filter((id) => model.findInstance(id));
     for (const id of instanceIds) model.translateInstance(id, delta);
     if (entityIds.length) {
-      // delta is world-space; convert via the context's inverse rotation
       const inv = model.activeMatrixInverse();
       const localDelta = sub(transformPoint(inv, delta), transformPoint(inv, [0, 0, 0]));
       const { vertices } = closeOverSelection(mesh, entityIds);
@@ -494,3 +619,25 @@ function commitMove(model, selection, delta, toLocal, sync) {
   sync();
 }
 
+// ── 2D segment/rect helpers for box selection ──────────────────────────────
+
+function seg2dCrossesRect(a, b, minX, minY, maxX, maxY) {
+  if (!a || !b) return false;
+  const edges = [
+    [{ x: minX, y: minY }, { x: maxX, y: minY }],
+    [{ x: maxX, y: minY }, { x: maxX, y: maxY }],
+    [{ x: maxX, y: maxY }, { x: minX, y: maxY }],
+    [{ x: minX, y: maxY }, { x: minX, y: minY }],
+  ];
+  return edges.some(([c, d]) => seg2dIntersects(a, b, c, d));
+}
+
+function seg2dIntersects(p1, p2, p3, p4) {
+  const d1x = p2.x - p1.x, d1y = p2.y - p1.y;
+  const d2x = p4.x - p3.x, d2y = p4.y - p3.y;
+  const denom = d1x * d2y - d1y * d2x;
+  if (Math.abs(denom) < 1e-9) return false;
+  const t = ((p3.x - p1.x) * d2y - (p3.y - p1.y) * d2x) / denom;
+  const u = ((p3.x - p1.x) * d1y - (p3.y - p1.y) * d1x) / denom;
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+}
