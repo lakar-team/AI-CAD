@@ -1,6 +1,6 @@
 import {
   MousePointer2, Eraser, Pencil, Square, Circle,
-  Maximize, Move, Ruler, Rotate3d,
+  Maximize, Move, Ruler, Rotate3d, RectangleHorizontal,
 } from 'lucide-react';
 
 const TOOLS = [
@@ -13,9 +13,10 @@ const TOOLS = [
   { sep: true },
   { id: 'pushpull', icon: Maximize, label: 'Push/Pull', key: 'P' },
   { id: 'move', icon: Move, label: 'Move', key: 'M' },
+  { id: 'offset', icon: RectangleHorizontal, label: 'Offset', key: 'F' },
   { sep: true },
   { id: 'tape', icon: Ruler, label: 'Tape Measure', key: 'T' },
-  { id: 'orbit', icon: Rotate3d, label: 'Orbit (left-drag)', key: null },
+  { id: 'orbit', icon: Rotate3d, label: 'Orbit (left-drag)', key: 'O' },
 ];
 
 export default function LeftToolbar({ activeTool, setTool }) {

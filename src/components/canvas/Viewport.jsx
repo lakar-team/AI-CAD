@@ -485,6 +485,25 @@ const CURSORS = {
   orbit: 'grab',
 };
 
+function GuideLines({ guides }) {
+  if (!guides || guides.length === 0) return null;
+  return (
+    <>
+      {guides.map((g) => (
+        <Line
+          key={g.id}
+          points={[g.a, g.b]}
+          color="#f5a623"
+          lineWidth={1}
+          dashed
+          dashSize={0.12}
+          gapSize={0.06}
+        />
+      ))}
+    </>
+  );
+}
+
 export default function Viewport({
   model,
   version,
@@ -495,6 +514,7 @@ export default function Viewport({
   hoveredFaceId,
   measurement,
   selectionCentroid,
+  guides,
   onPointerRay,
   onClick,
   onDoubleClick,
@@ -583,6 +603,7 @@ export default function Viewport({
         />
         <InferenceMarker inference={inference} />
         <PreviewOverlay preview={preview} />
+        <GuideLines guides={guides} />
         <SelectionGizmo
           centroid={selectionCentroid}
           activeTool={activeTool}

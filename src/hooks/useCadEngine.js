@@ -18,6 +18,7 @@ import {
 import { closeOverSelection } from '../core/model.js';
 import { rectCorners, circlePoints } from '../core/shapes.js';
 import { formatLength, parseLength } from '../core/units.js';
+import { offsetFace } from '../core/offset.js';
 
 export function useCadEngine() {
   const [model, setModel] = useState(() => new CadModel());
@@ -35,6 +36,8 @@ export function useCadEngine() {
   const [measurement, setMeasurement] = useState('');
   const [units, setUnits] = useState(() => localStorage.getItem('lakar_units') || 'm');
   const [hoveredFaceId, setHoveredFaceId] = useState(null);
+  const [guides, setGuides] = useState([]);
+  const guideIdRef = useRef(0);
   const [preview, setPreview] = useState(null); // viewport overlay description
 
   // transient per-tool state (never triggers renders by itself)
@@ -124,6 +127,18 @@ export function useCadEngine() {
       const hover = inf.type === 'on-face' && samePath(inf.instancePath) ? inf.entityId : null;
       setHoveredFaceId(hover);
       setInference(null);
+      return;
+    }
+
+    if (activeTool === 'offset' && t.faceId) {
+      const inf = infer(ray, radius);
+      const hit = rayLineClosest(ray.origin, normalize(ray.dir), t.centroidWorld, t.normalWorld);
+      if (hit) {
+        const d = Math.max(0.001, Math.abs(hit.lineT));
+        t.dist = hit.lineT;
+        setMeasurement(formatLength(d, units));
+        setPreview({ type: 'offset', faceId: t.faceId, dist: hit.lineT });
+      }
       return;
     }
 
@@ -243,6 +258,32 @@ export function useCadEngine() {
         break;
       }
 
+      case 'offset': {
+        if (!t.faceId) {
+          const inf = infer(ray, radius);
+          if (inf.type === 'on-face' && samePath(inf.instancePath)) {
+            const mesh = model.activeMesh();
+            const f = mesh.faces.get(inf.entityId);
+            if (!f) break;
+            const m = model.activeMatrix();
+            ts.current.faceId = f.id;
+            ts.current.normalLocal = [...f.normal];
+            ts.current.normalWorld = normalize(transformDirection(m, f.normal));
+            ts.current.centroidWorld = transformPoint(m, mesh.faceCentroid(f.id));
+            ts.current.dist = 0;
+            setHoveredFaceId(null);
+          }
+        } else {
+          const dist = t.dist || 0;
+          if (Math.abs(dist) > 1e-4) {
+            model.transact(() => offsetFace(model.activeMesh(), t.faceId, dist));
+            sync();
+          }
+          resetTool();
+        }
+        break;
+      }
+
       case 'pushpull': {
         if (!t.faceId) {
           const inf = infer(ray, radius);
@@ -300,7 +341,11 @@ export function useCadEngine() {
         if (!t.anchor) {
           ts.current.anchor = { point: inf.point, inf };
         } else {
-          setMeasurement(`${distance(t.anchor.point, inf.point).toFixed(3)} m`);
+          const dist = distance(t.anchor.point, inf.point);
+          setMeasurement(formatLength(dist, units));
+          // Create a guide line segment
+          const gid = ++guideIdRef.current;
+          setGuides((prev) => [...prev, { id: gid, a: t.anchor.point, b: inf.point }]);
           ts.current = {};
           setPreview(null);
         }
@@ -380,6 +425,11 @@ export function useCadEngine() {
       resetTool();
     } else if (activeTool === 'circle' && t.anchor) {
       commitLoop(model, circlePoints(t.anchor, Math.abs(value)), toLocal, sync);
+      resetTool();
+    } else if (activeTool === 'offset' && t.faceId) {
+      const sign = Math.sign(t.dist || 1);
+      model.transact(() => offsetFace(model.activeMesh(), t.faceId, sign * Math.abs(value)));
+      sync();
       resetTool();
     }
   }, [activeTool, model, resolveVertex, resetTool, selection, sync, toLocal, units]);
@@ -517,6 +567,8 @@ export function useCadEngine() {
     setUnits(unit);
     localStorage.setItem('lakar_units', unit);
   }, []);
+
+  const clearGuides = useCallback(() => setGuides([]), []);
 
   // ── post-creation dimension editing ──────────────────────────────────────────
 
@@ -667,6 +719,7 @@ export function useCadEngine() {
         if (key === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
         if (key === 'y') { e.preventDefault(); redo(); }
         if (key === 'a') { e.preventDefault(); selectAll(); }
+        if (key === 'g' && e.shiftKey) { e.preventDefault(); clearGuides(); }
         return;
       }
 
@@ -683,17 +736,17 @@ export function useCadEngine() {
         case 'Delete':
         case 'Backspace': deleteSelected(); break;
         default: {
-          const tools = { l: 'line', r: 'rect', c: 'circle', p: 'pushpull', m: 'move', e: 'eraser', t: 'tape' };
+          const tools = { l: 'line', r: 'rect', c: 'circle', p: 'pushpull', m: 'move', e: 'eraser', t: 'tape', o: 'orbit', f: 'offset' };
           if (key === 'g') { e.shiftKey ? makeGroupOrComponent(true) : makeGroupOrComponent(false); }
-          else if (key === 'q') { if (activeTool === 'select') selectConnected(); }
-          else if (key === 'f') { if (activeTool === 'select') { e.shiftKey ? selectCoplanar() : selectBoundingEdges(); } }
+          else if (key === 'q') { if (activeTool === 'select') { e.shiftKey ? selectCoplanar() : selectConnected(); } }
+          else if (key === 'b') { if (activeTool === 'select') selectBoundingEdges(); }
           else if (tools[key]) activateTool(tools[key]);
         }
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [activateTool, deleteSelected, makeGroupOrComponent, model, redo, resetTool, selection, selectAll, selectBoundingEdges, selectCoplanar, selectConnected, sync, undo, activeTool]);
+  }, [activateTool, clearGuides, deleteSelected, makeGroupOrComponent, model, redo, resetTool, selection, selectAll, selectBoundingEdges, selectCoplanar, selectConnected, sync, undo, activeTool]);
 
   return {
     model,
@@ -708,6 +761,8 @@ export function useCadEngine() {
     setMeasurement,
     units,
     changeUnits,
+    guides,
+    clearGuides,
     hoveredFaceId,
     preview,
     selectionCentroid,
