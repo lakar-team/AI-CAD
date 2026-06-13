@@ -17,6 +17,7 @@ import {
 } from '../core/math3.js';
 import { closeOverSelection } from '../core/model.js';
 import { rectCorners, circlePoints } from '../core/shapes.js';
+import { formatLength, parseLength } from '../core/units.js';
 
 export function useCadEngine() {
   const [model, setModel] = useState(() => new CadModel());
@@ -32,6 +33,7 @@ export function useCadEngine() {
   const [inference, setInference] = useState(null);
   const [axisLock, setAxisLock] = useState(null);
   const [measurement, setMeasurement] = useState('');
+  const [units, setUnits] = useState(() => localStorage.getItem('lakar_units') || 'm');
   const [hoveredFaceId, setHoveredFaceId] = useState(null);
   const [preview, setPreview] = useState(null); // viewport overlay description
 
@@ -113,7 +115,7 @@ export function useCadEngine() {
         if (hit) {
           const d = hit.lineT;
           t.dist = d;
-          setMeasurement(`${Math.abs(d).toFixed(3)} m`);
+          setMeasurement(formatLength(Math.abs(d), units));
           setPreview({ type: 'pushpull', loop: t.loopWorld, normal: t.normalWorld, dist: d });
         }
         return;
@@ -130,7 +132,7 @@ export function useCadEngine() {
     setInference(inf);
 
     if (activeTool === 'line' && anchor) {
-      setMeasurement(`${distance(anchor.point, inf.point).toFixed(3)} m`);
+      setMeasurement(formatLength(distance(anchor.point, inf.point), units));
       ts.current.lastInf = inf;
       setPreview({ type: 'line', a: anchor.point, b: inf.point, axis: inf.axis });
     } else if (activeTool === 'rect' && anchor) {
@@ -138,24 +140,24 @@ export function useCadEngine() {
       ts.current.lastInf = inf;
       if (corners) {
         const [, b, , d] = corners;
-        setMeasurement(`${distance(anchor.point, b).toFixed(3)} x ${distance(anchor.point, d).toFixed(3)} m`);
+        setMeasurement(`${formatLength(distance(anchor.point, b), units)} × ${formatLength(distance(anchor.point, d), units)}`);
         setPreview({ type: 'loop', points: corners });
       }
     } else if (activeTool === 'circle' && anchor) {
       const r = distance(anchor.point, inf.point);
       ts.current.lastInf = inf;
-      setMeasurement(`r = ${r.toFixed(3)} m`);
+      setMeasurement(`r = ${formatLength(r, units)}`);
       setPreview({ type: 'loop', points: circlePoints(anchor, r) });
     } else if (activeTool === 'tape' && anchor) {
-      setMeasurement(`${distance(anchor.point, inf.point).toFixed(3)} m`);
+      setMeasurement(formatLength(distance(anchor.point, inf.point), units));
       setPreview({ type: 'line', a: anchor.point, b: inf.point, dashed: true });
     } else if (activeTool === 'move' && anchor) {
       const delta = sub(inf.point, anchor.point);
-      setMeasurement(`${distance(anchor.point, inf.point).toFixed(3)} m`);
+      setMeasurement(formatLength(distance(anchor.point, inf.point), units));
       ts.current.delta = delta;
       setPreview({ type: 'move', delta, axis: inf.axis, a: anchor.point, b: inf.point });
     }
-  }, [activeTool, infer, samePath]);
+  }, [activeTool, infer, samePath, units]);
 
   // ── clicks ─────────────────────────────────────────────────────────────────
 
@@ -316,7 +318,7 @@ export function useCadEngine() {
   // ── typed measurements ("3", "2.5") ───────────────────────────────────────
 
   const submitMeasurement = useCallback((text) => {
-    const value = parseFloat(String(text).replace(',', '.'));
+    const value = parseLength(text, units);
     if (!isFinite(value) || value === 0) return;
     const t = ts.current;
 
@@ -341,7 +343,7 @@ export function useCadEngine() {
       commitLoop(model, circlePoints(t.anchor, Math.abs(value)), toLocal, sync);
       resetTool();
     }
-  }, [activeTool, model, resolveVertex, resetTool, sync, toLocal]);
+  }, [activeTool, model, resolveVertex, resetTool, sync, toLocal, units]);
 
   // ── box selection (window/crossing) ──────────────────────────────────────
 
@@ -472,6 +474,11 @@ export function useCadEngine() {
     setAxisLock(axis);
   }, [activateTool]);
 
+  const changeUnits = useCallback((unit) => {
+    setUnits(unit);
+    localStorage.setItem('lakar_units', unit);
+  }, []);
+
   // ── structure operations ──────────────────────────────────────────────────
 
   const makeGroupOrComponent = useCallback((isComponent) => {
@@ -565,6 +572,8 @@ export function useCadEngine() {
     axisLock,
     measurement,
     setMeasurement,
+    units,
+    changeUnits,
     hoveredFaceId,
     preview,
     selectionCentroid,

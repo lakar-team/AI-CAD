@@ -151,6 +151,8 @@ export default function App() {
         onMeasurementChange={engine.setMeasurement}
         onMeasurementSubmit={engine.submitMeasurement}
         inputRef={measurementInputRef}
+        units={engine.units}
+        onUnitsChange={engine.changeUnits}
       />
     </div>
   );

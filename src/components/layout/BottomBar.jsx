@@ -12,6 +12,8 @@ const TOOL_HINTS = {
 
 const AXIS_LABELS = { x: 'red (X)', y: 'blue (Y)', z: 'green (Z)' };
 
+const UNIT_OPTIONS = ['mm', 'cm', 'm', 'ft', 'in'];
+
 export default function BottomBar({
   activeTool,
   axisLock,
@@ -19,13 +21,15 @@ export default function BottomBar({
   onMeasurementChange,
   onMeasurementSubmit,
   inputRef,
+  units = 'm',
+  onUnitsChange,
 }) {
   return (
     <footer className="sk-bottombar">
       <span className="sk-status">
         {TOOL_HINTS[activeTool] || ''}
         {axisLock && (
-          <strong style={{ marginLeft: 8 }}>🔒 locked to the {AXIS_LABELS[axisLock]} axis</strong>
+          <strong style={{ marginLeft: 8 }}>locked to the {AXIS_LABELS[axisLock]} axis</strong>
         )}
       </span>
       <div className="sk-measurements">
@@ -47,6 +51,16 @@ export default function BottomBar({
           }}
           placeholder="—"
         />
+        <select
+          className="sk-units-select"
+          value={units}
+          onChange={(e) => onUnitsChange?.(e.target.value)}
+          title="Display units"
+        >
+          {UNIT_OPTIONS.map((u) => (
+            <option key={u} value={u}>{u}</option>
+          ))}
+        </select>
       </div>
     </footer>
   );
