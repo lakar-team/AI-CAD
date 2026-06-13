@@ -41,18 +41,28 @@ function inferenceColor(inf) {
   return inf.axis ? AXIS_COLORS[inf.axis] : (INFERENCE_COLORS[inf.type] || '#bbb');
 }
 
-// ─── pointer → world ray + box drag detection ─────────────────────────────────
-function PointerRig({ onRay, onClick, onDoubleClick, onBoxSelect, onBoxDrag, enableBoxSelect }) {
+// ─── pointer → world ray + box drag detection + gizmo picking ────────────────
+function PointerRig({
+  onRay, onClick, onDoubleClick,
+  onBoxSelect, onBoxDrag, enableBoxSelect,
+  gizmoMeshesRef, onGizmoHover, onGizmoClick,
+}) {
   const { gl, camera, size } = useThree();
 
   // All callbacks in a ref so the single DOM-listener effect never re-runs
   const h = useRef({});
-  h.current = { onRay, onClick, onDoubleClick, onBoxSelect, onBoxDrag, enableBoxSelect, camera, size };
+  h.current = {
+    onRay, onClick, onDoubleClick,
+    onBoxSelect, onBoxDrag, enableBoxSelect,
+    gizmoMeshesRef, onGizmoHover, onGizmoClick,
+    camera, size,
+  };
 
   useEffect(() => {
     const el = gl.domElement;
     const down = { x: 0, y: 0, moved: false, dragging: false };
     const raycaster = new THREE.Raycaster();
+    const pickRc = new THREE.Raycaster(); // dedicated raycaster for gizmo picking
     const ndc = new THREE.Vector2();
 
     const makeRay = (ev) => {
@@ -73,13 +83,28 @@ function PointerRig({ onRay, onClick, onDoubleClick, onBoxSelect, onBoxDrag, ena
       };
     };
 
+    // Test pointer against gizmo hit meshes; returns axis name or null
+    const hitGizmo = (ev) => {
+      const meshes = (h.current.gizmoMeshesRef?.current || []).filter(Boolean);
+      if (!meshes.length) return null;
+      const { camera: cam } = h.current;
+      const rect = el.getBoundingClientRect();
+      const n = new THREE.Vector2(
+        ((ev.clientX - rect.left) / rect.width) * 2 - 1,
+        -((ev.clientY - rect.top) / rect.height) * 2 + 1,
+      );
+      pickRc.setFromCamera(n, cam);
+      const hits = pickRc.intersectObjects(meshes, false);
+      return hits.length > 0 ? hits[0].object.userData.axis : null;
+    };
+
     // Snapshot the camera projection at the moment of release for box-select
     const makeProject = () => {
       const { camera: cam, size: sz } = h.current;
       return (worldPt) => {
         const v = new THREE.Vector3(worldPt[0], worldPt[1], worldPt[2]);
         v.project(cam);
-        if (v.z > 1) return null; // behind near plane
+        if (v.z > 1) return null;
         return { x: (v.x + 1) / 2 * sz.width, y: (1 - v.y) / 2 * sz.height };
       };
     };
@@ -90,7 +115,7 @@ function PointerRig({ onRay, onClick, onDoubleClick, onBoxSelect, onBoxDrag, ena
       const dy = ev.clientY - down.y;
       if (Math.abs(dx) + Math.abs(dy) > 4) down.moved = true;
 
-      // Box drag: left button held + significant move + select tool
+      // Box drag: left button held + moved + select tool
       if (ev.buttons === 1 && down.moved && h.current.enableBoxSelect) {
         if (!down.dragging) down.dragging = true;
         const rect = el.getBoundingClientRect();
@@ -100,7 +125,13 @@ function PointerRig({ onRay, onClick, onDoubleClick, onBoxSelect, onBoxDrag, ena
           x2: ev.clientX - rect.left,
           y2: ev.clientY - rect.top,
         });
-        return; // suppress onRay while box-dragging
+        return;
+      }
+
+      // Gizmo hover (when not dragging, not box-selecting)
+      if (!down.moved) {
+        const axis = hitGizmo(ev);
+        h.current.onGizmoHover?.(axis);
       }
 
       const { ray, radius } = makeRay(ev);
@@ -123,11 +154,17 @@ function PointerRig({ onRay, onClick, onDoubleClick, onBoxSelect, onBoxDrag, ena
         const x2 = ev.clientX - rect.left, y2 = ev.clientY - rect.top;
         const direction = x2 >= x1 ? 'window' : 'crossing';
         h.current.onBoxSelect?.({ x1, y1, x2, y2 }, direction, makeProject());
-        h.current.onBoxDrag?.(null); // clear overlay
+        h.current.onBoxDrag?.(null);
         down.dragging = false;
         return;
       }
       if (down.moved) return;
+      // Gizmo click takes priority over regular click
+      const axis = hitGizmo(ev);
+      if (axis) {
+        h.current.onGizmoClick?.(axis);
+        return;
+      }
       const { ray, radius } = makeRay(ev);
       h.current.onClick(ray, radius, { shift: ev.shiftKey });
     };
@@ -368,26 +405,67 @@ function PreviewOverlay({ preview }) {
 
 // ─── selection gizmo ─────────────────────────────────────────────────────────
 
-function SelectionGizmo({ centroid, activeTool }) {
+const GIZMO_SIZE = 0.7; // world-unit arrow length
+const HIT_RADIUS = 0.1; // half-width of invisible hit cylinder
+
+function SelectionGizmo({ centroid, activeTool, gizmoMeshesRef, hoveredAxis }) {
+  const xRef = useRef(null);
+  const yRef = useRef(null);
+  const zRef = useRef(null);
+
+  // Keep gizmoMeshesRef in sync with the hit cylinder Three.js objects.
+  // Mutation during render is safe for refs.
+  if (gizmoMeshesRef) {
+    const meshes = [];
+    if (centroid && activeTool === 'select') {
+      if (xRef.current) meshes.push(xRef.current);
+      if (yRef.current) meshes.push(yRef.current);
+      if (zRef.current) meshes.push(zRef.current);
+    }
+    gizmoMeshesRef.current = meshes;
+  }
+
   if (!centroid || activeTool !== 'select') return null;
-  const S = 0.7; // arrow length in world units
+
+  const S = GIZMO_SIZE;
+  const HALF = S / 2;
+
+  const lw = (axis) => (hoveredAxis === axis ? 4 : 2.5);
+  const dotR = (axis) => (hoveredAxis === axis ? 0.08 : 0.055);
+
   return (
     <group position={centroid}>
-      <Line points={[[0, 0, 0], [S, 0, 0]]} color={AXIS_COLORS.x} lineWidth={2.5} />
-      <Line points={[[0, 0, 0], [0, S, 0]]} color={AXIS_COLORS.y} lineWidth={2.5} />
-      <Line points={[[0, 0, 0], [0, 0, S]]} color={AXIS_COLORS.z} lineWidth={2.5} />
+      {/* Visible axis lines */}
+      <Line points={[[0, 0, 0], [S, 0, 0]]} color={AXIS_COLORS.x} lineWidth={lw('x')} />
+      <Line points={[[0, 0, 0], [0, S, 0]]} color={AXIS_COLORS.y} lineWidth={lw('y')} />
+      <Line points={[[0, 0, 0], [0, 0, S]]} color={AXIS_COLORS.z} lineWidth={lw('z')} />
+
       {/* Arrowhead dots */}
       <mesh position={[S, 0, 0]} renderOrder={25}>
-        <sphereGeometry args={[0.055, 8, 8]} />
+        <sphereGeometry args={[dotR('x'), 8, 8]} />
         <meshBasicMaterial color={AXIS_COLORS.x} depthTest={false} />
       </mesh>
       <mesh position={[0, S, 0]} renderOrder={25}>
-        <sphereGeometry args={[0.055, 8, 8]} />
+        <sphereGeometry args={[dotR('y'), 8, 8]} />
         <meshBasicMaterial color={AXIS_COLORS.y} depthTest={false} />
       </mesh>
       <mesh position={[0, 0, S]} renderOrder={25}>
-        <sphereGeometry args={[0.055, 8, 8]} />
+        <sphereGeometry args={[dotR('z'), 8, 8]} />
         <meshBasicMaterial color={AXIS_COLORS.z} depthTest={false} />
+      </mesh>
+
+      {/* Invisible hit cylinders (transparent, still raycasted) */}
+      <mesh ref={xRef} position={[HALF, 0, 0]} rotation={[0, 0, Math.PI / 2]} userData={{ axis: 'x' }}>
+        <cylinderGeometry args={[HIT_RADIUS, HIT_RADIUS, S, 6]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+      </mesh>
+      <mesh ref={yRef} position={[0, HALF, 0]} userData={{ axis: 'y' }}>
+        <cylinderGeometry args={[HIT_RADIUS, HIT_RADIUS, S, 6]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+      </mesh>
+      <mesh ref={zRef} position={[0, 0, HALF]} rotation={[Math.PI / 2, 0, 0]} userData={{ axis: 'z' }}>
+        <cylinderGeometry args={[HIT_RADIUS, HIT_RADIUS, S, 6]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
     </group>
   );
@@ -421,6 +499,7 @@ export default function Viewport({
   onClick,
   onDoubleClick,
   onBoxSelect,
+  onGizmoAxisClick,
 }) {
   // Canvas container ref for bounding-rect lookups
   const canvasRef = useRef(null);
@@ -431,6 +510,10 @@ export default function Viewport({
   // Box drag state for selection box overlay
   const [boxDrag, setBoxDrag] = useState(null);
 
+  // Gizmo hover/interaction state
+  const [hoveredGizmoAxis, setHoveredGizmoAxis] = useState(null);
+  const gizmoMeshesRef = useRef([]); // [{mesh: THREE.Mesh, axis}] — updated by SelectionGizmo
+
   const handleMouseMove = useCallback((e) => {
     const rect = canvasRef.current?.getBoundingClientRect();
     if (rect) setCursorPos({ x: e.clientX - rect.left, y: e.clientY - rect.top });
@@ -438,6 +521,7 @@ export default function Viewport({
 
   const handleMouseLeave = useCallback(() => {
     setCursorPos(null);
+    setHoveredGizmoAxis(null);
   }, []);
 
   // Derived box style
@@ -447,11 +531,16 @@ export default function Viewport({
   const showInferenceLabel = inference && INFERENCE_LABELS[inference.type];
   const showCursorLabel = cursorPos && (measurement || showInferenceLabel);
 
+  // Cursor override when hovering a gizmo axis
+  const cursor = hoveredGizmoAxis
+    ? 'pointer'
+    : (CURSORS[activeTool] || 'default');
+
   return (
     <div
       className="sk-canvas"
       ref={canvasRef}
-      style={{ cursor: CURSORS[activeTool] || 'default' }}
+      style={{ cursor }}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
     >
@@ -482,6 +571,9 @@ export default function Viewport({
           onBoxSelect={onBoxSelect}
           onBoxDrag={setBoxDrag}
           enableBoxSelect={activeTool === 'select'}
+          gizmoMeshesRef={gizmoMeshesRef}
+          onGizmoHover={setHoveredGizmoAxis}
+          onGizmoClick={onGizmoAxisClick}
         />
         <ModelRender
           model={model}
@@ -491,7 +583,12 @@ export default function Viewport({
         />
         <InferenceMarker inference={inference} />
         <PreviewOverlay preview={preview} />
-        <SelectionGizmo centroid={selectionCentroid} activeTool={activeTool} />
+        <SelectionGizmo
+          centroid={selectionCentroid}
+          activeTool={activeTool}
+          gizmoMeshesRef={gizmoMeshesRef}
+          hoveredAxis={hoveredGizmoAxis}
+        />
 
         <GizmoHelper alignment="bottom-right" margin={[72, 72]}>
           <GizmoViewport

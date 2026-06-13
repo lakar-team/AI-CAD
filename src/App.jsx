@@ -25,23 +25,6 @@ export default function App() {
   // Ref to the VCB measurement input (for auto-focus on digit keypress)
   const measurementInputRef = useRef(null);
 
-  // Auto-focus the measurement input when the user types a digit/decimal
-  // while a draw tool is active and no input is already focused.
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (!DRAW_TOOLS.has(engine.activeTool)) return;
-      if (/^[\d.\-]$/.test(e.key)) {
-        const inp = measurementInputRef.current;
-        if (inp) inp.focus();
-      }
-    };
-    // Use capture so this fires before useCadEngine's keydown handler
-    window.addEventListener('keydown', onKey, true);
-    return () => window.removeEventListener('keydown', onKey, true);
-  }, [engine.activeTool]);
-
   // ── AI assistant (reads the same scene graph the engine edits) ────────────
   const [aiConfig, setAiConfig] = useState(() => {
     try { return JSON.parse(localStorage.getItem('lakar_ai_v2')) || DEFAULT_AI_CONFIG; }
@@ -59,6 +42,22 @@ export default function App() {
     setAiConfig(cfg);
     localStorage.setItem('lakar_ai_v2', JSON.stringify(cfg));
   };
+
+  // Auto-focus the VCB when user types a digit while a draw tool is active.
+  // Must be after all useState calls to respect Rules of Hooks ordering.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (!DRAW_TOOLS.has(engine.activeTool)) return;
+      if (/^[\d.\-]$/.test(e.key)) {
+        const inp = measurementInputRef.current;
+        if (inp) inp.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [engine.activeTool]);
 
   const handleSendChat = useCallback(async (text) => {
     setChatHistory((prev) => [...prev, { role: 'user', text }]);
@@ -130,6 +129,7 @@ export default function App() {
         onClick={engine.onClick}
         onDoubleClick={engine.onDoubleClick}
         onBoxSelect={engine.selectByScreenBox}
+        onGizmoAxisClick={engine.onGizmoAxisClick}
       />
 
       <RightTray

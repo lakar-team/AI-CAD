@@ -465,6 +465,13 @@ export function useCadEngine() {
     return [sum[0] / pts.length, sum[1] / pts.length, sum[2] / pts.length];
   }, [model, version, selection]);
 
+  // ── gizmo axis click → constrained move ──────────────────────────────────
+
+  const onGizmoAxisClick = useCallback((axis) => {
+    activateTool('move');
+    setAxisLock(axis);
+  }, [activateTool]);
+
   // ── structure operations ──────────────────────────────────────────────────
 
   const makeGroupOrComponent = useCallback((isComponent) => {
@@ -566,6 +573,7 @@ export function useCadEngine() {
     onDoubleClick,
     submitMeasurement,
     selectByScreenBox,
+    onGizmoAxisClick,
     makeGroup: () => makeGroupOrComponent(false),
     makeComponent: () => makeGroupOrComponent(true),
     explodeSelected,
