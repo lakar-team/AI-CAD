@@ -40,6 +40,7 @@ export function useCadEngine() {
   const guideIdRef = useRef(0);
   const [annotations, setAnnotations] = useState([]);
   const annotIdRef = useRef(0);
+  const [refPlanes, setRefPlanes] = useState([]);
   const [preview, setPreview] = useState(null); // viewport overlay description
 
   // transient per-tool state (never triggers renders by itself)
@@ -598,6 +599,14 @@ export function useCadEngine() {
   const clearGuides = useCallback(() => setGuides([]), []);
   const clearAnnotations = useCallback(() => setAnnotations([]), []);
 
+  const toggleRefPlane = useCallback((axis) => {
+    setRefPlanes((prev) =>
+      prev.find((p) => p.axis === axis)
+        ? prev.filter((p) => p.axis !== axis)
+        : [...prev, { id: axis, axis }]
+    );
+  }, []);
+
   // ── post-creation dimension editing ──────────────────────────────────────────
 
   const editEdgeLength = useCallback((edgeId, newLengthMeters) => {
@@ -749,6 +758,9 @@ export function useCadEngine() {
         if (key === 'a') { e.preventDefault(); selectAll(); }
         if (key === 'g' && e.shiftKey) { e.preventDefault(); clearGuides(); }
         if (key === 'd' && e.shiftKey) { e.preventDefault(); clearAnnotations(); }
+        if (key === '1') { e.preventDefault(); toggleRefPlane('xy'); }
+        if (key === '2') { e.preventDefault(); toggleRefPlane('xz'); }
+        if (key === '3') { e.preventDefault(); toggleRefPlane('yz'); }
         return;
       }
 
@@ -775,7 +787,7 @@ export function useCadEngine() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [activateTool, clearAnnotations, clearGuides, deleteSelected, makeGroupOrComponent, model, redo, resetTool, selection, selectAll, selectBoundingEdges, selectCoplanar, selectConnected, sync, undo, activeTool]);
+  }, [activateTool, clearAnnotations, clearGuides, deleteSelected, makeGroupOrComponent, model, redo, resetTool, selection, selectAll, selectBoundingEdges, selectCoplanar, selectConnected, sync, toggleRefPlane, undo, activeTool]);
 
   return {
     model,
@@ -794,6 +806,7 @@ export function useCadEngine() {
     clearGuides,
     annotations,
     clearAnnotations,
+    refPlanes,
     hoveredFaceId,
     preview,
     selectionCentroid,

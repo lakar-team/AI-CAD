@@ -536,6 +536,37 @@ function DimensionAnnotations({ annotations, units }) {
   );
 }
 
+const PLANE_CONFIG = {
+  xy: { rotation: [-Math.PI / 2, 0, 0], color: AXIS_COLORS.y },  // horizontal (Y-up)
+  xz: { rotation: [0, 0, 0],            color: AXIS_COLORS.z },  // facing Z
+  yz: { rotation: [0, Math.PI / 2, 0],  color: AXIS_COLORS.x },  // facing X
+};
+const PLANE_SIZE = 50;
+
+function RefPlanes({ refPlanes }) {
+  if (!refPlanes || refPlanes.length === 0) return null;
+  return (
+    <>
+      {refPlanes.map(({ id, axis }) => {
+        const cfg = PLANE_CONFIG[axis];
+        if (!cfg) return null;
+        return (
+          <mesh key={id} rotation={cfg.rotation}>
+            <planeGeometry args={[PLANE_SIZE, PLANE_SIZE]} />
+            <meshBasicMaterial
+              color={cfg.color}
+              transparent
+              opacity={0.08}
+              side={2}
+              depthWrite={false}
+            />
+          </mesh>
+        );
+      })}
+    </>
+  );
+}
+
 function GuideLines({ guides }) {
   if (!guides || guides.length === 0) return null;
   return (
@@ -568,6 +599,7 @@ export default function Viewport({
   guides,
   annotations,
   units,
+  refPlanes,
   onPointerRay,
   onClick,
   onDoubleClick,
@@ -658,6 +690,7 @@ export default function Viewport({
         <PreviewOverlay preview={preview} />
         <GuideLines guides={guides} />
         <DimensionAnnotations annotations={annotations} units={units} />
+        <RefPlanes refPlanes={refPlanes} />
         <SelectionGizmo
           centroid={selectionCentroid}
           activeTool={activeTool}

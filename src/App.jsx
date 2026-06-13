@@ -128,6 +128,7 @@ export default function App() {
         guides={engine.guides}
         annotations={engine.annotations}
         units={engine.units}
+        refPlanes={engine.refPlanes}
         onPointerRay={engine.onPointerRay}
         onClick={engine.onClick}
         onDoubleClick={engine.onDoubleClick}
