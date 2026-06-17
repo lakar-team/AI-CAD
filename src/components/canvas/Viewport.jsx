@@ -301,6 +301,24 @@ function PointerRig({
   return null;
 }
 
+// ─── camera preset per mode ──────────────────────────────────────────────────
+
+function CameraPreset({ appMode }) {
+  const { camera, controls } = useThree();
+  useEffect(() => {
+    if (!controls) return;
+    if (appMode === 'character') {
+      camera.position.set(0, 1.0, 3.0);
+      controls.target.set(0, 0.9, 0);
+    } else {
+      camera.position.set(9, 7, 9);
+      controls.target.set(0, 0, 0);
+    }
+    controls.update();
+  }, [appMode, camera, controls]);
+  return null;
+}
+
 // ─── grid ─────────────────────────────────────────────────────────────────────
 const Grid = React.memo(function Grid() {
   const { minorGeo, majorGeo } = useMemo(() => {
@@ -960,6 +978,7 @@ export default function Viewport({
             RIGHT: THREE.MOUSE.PAN,
           }}
         />
+        <CameraPreset appMode={appMode} />
         <color attach="background" args={['#f2f1ee']} />
         <ambientLight intensity={1.1} />
         <directionalLight position={[6, 12, 6]} intensity={1.4} />
