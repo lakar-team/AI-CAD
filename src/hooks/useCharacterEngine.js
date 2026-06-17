@@ -8,17 +8,14 @@ import {
 } from '../character/boneDetection.js';
 import { exportForVtube as exportForVtubeUtil } from '../character/exporter.js';
 
-// ─── Main hook ────────────────────────────────────────────────────────────────
-
 export function useCharacterEngine() {
   const [characters, setCharacters] = useState([]);
   const [selectedCharId, setSelectedCharId] = useState(null);
   const [selectedBoneId, setSelectedBoneId] = useState(null);
   const [activeTool, setActiveTool] = useState('select');
 
-  // Prep pipeline state
-  const [charPrepTool, setCharPrepTool] = useState(null); // null | 'mapbones' | 'prep' | 'facesetup'
-  const [boneMapping, setBoneMapping] = useState({}); // { mixamoName: { sourceName, status } }
+  const [charPrepTool, setCharPrepTool] = useState(null);
+  const [boneMapping, setBoneMapping] = useState({});
   const [selectedMixamoJoint, setSelectedMixamoJoint] = useState(null);
   const [prepState, setPrepState] = useState({
     poseType: null, scaleFactor: 1, grounded: false, facingFixed: false,
@@ -45,8 +42,6 @@ export function useCharacterEngine() {
       return prev;
     });
   }, [charPrepTool, selectedBoneId, selectedMixamoJoint, selectedCharId]);
-
-  // ── Import / load ───────────────────────────────────────────────────────────
 
   const importGLB = useCallback(async (file) => {
     const url = URL.createObjectURL(file);
@@ -89,8 +84,6 @@ export function useCharacterEngine() {
     setBoneMapping({});
   }, []);
 
-  // ── Bone transform edit ─────────────────────────────────────────────────────
-
   const setBoneTransform = useCallback((boneId, { worldPos, rotation }) => {
     setCharacters((prev) => {
       const char = prev.find((c) => c.bones.some((b) => b.id === boneId));
@@ -111,8 +104,6 @@ export function useCharacterEngine() {
     });
   }, []);
 
-  // ── Viewport click ──────────────────────────────────────────────────────────
-
   const onCharacterClick = useCallback((ray, radius) => {
     let char = null;
     setCharacters((prev) => { char = prev.find((c) => c.id === selectedCharId) || null; return prev; });
@@ -126,15 +117,12 @@ export function useCharacterEngine() {
       if (d < closestDist) { closestDist = d; closest = bone; }
     }
     if (charPrepTool === 'mapbones') {
-      // In mapbones mode: toggle selection on bone click; ignore clicks on empty space
-      // (empty-space clicks may be the user clicking on the ref skeleton)
+      // Toggle in mapbones — empty-space clicks may hit the ref skeleton, so only act on bone hits
       if (closest) setSelectedBoneId((prev) => prev === closest.id ? null : closest.id);
     } else {
       setSelectedBoneId(closest ? closest.id : null);
     }
   }, [selectedCharId, charPrepTool]);
-
-  // ── Add child bone ──────────────────────────────────────────────────────────
 
   const addChildBone = useCallback(() => {
     setCharacters((prev) => {
@@ -158,8 +146,6 @@ export function useCharacterEngine() {
       return prev.map((c) => (c.id === selectedCharId ? updatedChar : c));
     });
   }, [selectedCharId, selectedBoneId]);
-
-  // ── Bone mapping ────────────────────────────────────────────────────────────
 
   const confirmBoneMapping = useCallback((mixamoName) => {
     setBoneMapping((m) => ({
@@ -217,8 +203,6 @@ export function useCharacterEngine() {
     }
   }, [characters, selectedCharId, boneMapping]);
 
-  // ── Prep: scale / ground / facing / T-pose ──────────────────────────────────
-
   const autoScale = useCallback((targetHeightCm = 175) => {
     setCharacters((prev) => {
       const char = prev.find((c) => c.id === selectedCharId);
@@ -261,26 +245,20 @@ export function useCharacterEngine() {
     setCharacters((prev) => {
       const char = prev.find((c) => c.id === selectedCharId);
       if (!char) return prev;
-
       const leftArmName = boneMapping['mixamorigLeftArm']?.sourceName;
       const rightArmName = boneMapping['mixamorigRightArm']?.sourceName;
       const leftArmData = leftArmName ? char.bones.find((b) => b.name === leftArmName) : null;
       const rightArmData = rightArmName ? char.bones.find((b) => b.name === rightArmName) : null;
-
       if (leftArmData) makeArmHorizontal(leftArmData, -1);
       if (rightArmData) makeArmHorizontal(rightArmData, 1);
-
-      // Recalculate bind pose inverses so skinning remains correct
+      // Recalculate bind pose inverses so skinning remains correct after arm rotation
       char.scene.traverse((obj) => {
         if (obj.isSkinnedMesh && obj.skeleton) obj.skeleton.calculateInverses();
       });
-
       setPrepState((s) => ({ ...s, poseType: 'tpose' }));
       return [...prev];
     });
   }, [selectedCharId, boneMapping]);
-
-  // ── Face setup ──────────────────────────────────────────────────────────────
 
   const setFaceMode = useCallback((mode) => {
     setFaceSetup((s) => ({ ...s, mode }));
@@ -297,7 +275,6 @@ export function useCharacterEngine() {
     setFaceSetup((s) => ({ ...s, faceMeshId: meshId }));
   }, []);
 
-  // Auto-detect face blendshapes from loaded morph targets
   const autoDetectBlendshapes = useCallback(() => {
     const char = characters.find((c) => c.id === selectedCharId);
     if (!char) return;
@@ -308,9 +285,7 @@ export function useCharacterEngine() {
     });
     const detected = {};
     for (const arkit of ARKIT_BLENDSHAPES) {
-      // Exact match first
       if (morphNames.has(arkit)) { detected[arkit] = arkit; continue; }
-      // Case-insensitive
       const lower = arkit.toLowerCase();
       for (const mName of morphNames) {
         if (mName.toLowerCase() === lower) { detected[arkit] = mName; break; }
@@ -318,8 +293,6 @@ export function useCharacterEngine() {
     }
     setFaceSetup((s) => ({ ...s, blendshapeMap: { ...detected, ...s.blendshapeMap } }));
   }, [characters, selectedCharId]);
-
-  // ── Swap Left ↔ Right mappings ────────────────────────────────────────────
 
   const swapLeftRight = useCallback(() => {
     setBoneMapping((m) => {
@@ -351,8 +324,6 @@ export function useCharacterEngine() {
     });
   }, []);
 
-  // ── Export for vtube ────────────────────────────────────────────────────────
-
   const exportForVtube = useCallback(async () => {
     const char = characters.find((c) => c.id === selectedCharId);
     if (!char) return;
@@ -372,12 +343,8 @@ export function useCharacterEngine() {
     }
   }, [characters, selectedCharId, boneMapping, faceSetup]);
 
-  // ── Derived ─────────────────────────────────────────────────────────────────
-
   const selectedChar = characters.find((c) => c.id === selectedCharId) || null;
   const selectedBone = selectedChar?.bones.find((b) => b.id === selectedBoneId) || null;
-
-  // How many Mixamo joints are mapped (for display)
   const mappingStats = {
     total: MIXAMO_JOINTS.length,
     mapped: Object.values(boneMapping).filter((e) => e.sourceName).length,
@@ -385,7 +352,6 @@ export function useCharacterEngine() {
   };
 
   return {
-    // Core
     characters,
     selectedCharId,
     selectedBoneId,
@@ -402,7 +368,6 @@ export function useCharacterEngine() {
     setSelectedBoneId,
     selectedChar,
     selectedBone,
-    // Prep pipeline
     charPrepTool,
     setCharPrepTool,
     boneMapping,
