@@ -409,8 +409,14 @@ export function useCharacterEngine() {
       const d = distPointToRay(ray.origin, ray.dir, [tmp.x, tmp.y, tmp.z]);
       if (d < closestDist) { closestDist = d; closest = bone; }
     }
-    setSelectedBoneId(closest ? closest.id : null);
-  }, [selectedCharId]);
+    if (charPrepTool === 'mapbones') {
+      // In mapbones mode: toggle selection on bone click; ignore clicks on empty space
+      // (empty-space clicks may be the user clicking on the ref skeleton)
+      if (closest) setSelectedBoneId((prev) => prev === closest.id ? null : closest.id);
+    } else {
+      setSelectedBoneId(closest ? closest.id : null);
+    }
+  }, [selectedCharId, charPrepTool]);
 
   // ── Add child bone ──────────────────────────────────────────────────────────
 
@@ -605,11 +611,73 @@ export function useCharacterEngine() {
     try {
       const { GLTFExporter } = await import('three/examples/jsm/exporters/GLTFExporter.js');
 
-      // Deep-clone scene so we don't mutate the live view
+      // ── 1. Record traversal order BEFORE clone ─────────────────────────────
+      // SkinnedMesh.clone() does NOT rebind the skeleton to the cloned bones —
+      // the cloned mesh still references the original skeleton's bone objects.
+      // GLTFExporter builds a node-index table from the cloned scene, so any
+      // skin joint pointing to an original (absent) bone produces an undefined
+      // index → "Cannot set properties of undefined (setting 'isBone')".
+      // Fix: match original→cloned bones by deterministic traversal order, then
+      // rebind every SkinnedMesh to a fresh Skeleton that references cloned bones.
+      const origBones = [];
+      const origSkinnedMeshes = [];
+      char.scene.traverse((obj) => {
+        if (obj.isBone) origBones.push(obj);
+        if (obj.isSkinnedMesh) origSkinnedMeshes.push(obj);
+      });
+
+      // ── 2. Deep-clone the scene ────────────────────────────────────────────
       const exportScene = char.scene.clone(true);
+
+      // ── 3. Collect cloned nodes in the same traversal order ────────────────
+      const clonedBones = [];
+      const clonedSkinnedMeshes = [];
+      exportScene.traverse((obj) => {
+        if (obj.isBone) clonedBones.push(obj);
+        if (obj.isSkinnedMesh) clonedSkinnedMeshes.push(obj);
+      });
+
+      // ── 4. Rebind skeletons to cloned bones ────────────────────────────────
+      const boneRemap = new Map();
+      origBones.forEach((orig, i) => { if (clonedBones[i]) boneRemap.set(orig, clonedBones[i]); });
+
+      origSkinnedMeshes.forEach((origMesh, i) => {
+        const clonedMesh = clonedSkinnedMeshes[i];
+        if (!clonedMesh || !origMesh.skeleton) return;
+        const newBones = origMesh.skeleton.bones.map((b) => boneRemap.get(b) || b);
+        const newInverses = origMesh.skeleton.boneInverses.map((m) => m.clone());
+        const newSkeleton = new THREE.Skeleton(newBones, newInverses);
+        clonedMesh.bind(newSkeleton, clonedMesh.matrixWorld);
+      });
+
+      // ── 5. Bake root transform into geometry vertices ──────────────────────
+      // autoScale / groundModel / fixFacing all leave transforms on char.scene
+      // (root scale / position / rotation). Bake them into mesh vertex data so
+      // the exported root node is identity — keeping bone index tables valid.
+      exportScene.updateMatrix();
+      const isIdentityScale = Math.abs(exportScene.scale.x - 1) < 1e-6
+        && Math.abs(exportScene.scale.y - 1) < 1e-6
+        && Math.abs(exportScene.scale.z - 1) < 1e-6;
+      const isIdentityRot = Math.abs(exportScene.rotation.x) < 1e-6
+        && Math.abs(exportScene.rotation.y) < 1e-6
+        && Math.abs(exportScene.rotation.z) < 1e-6;
+      const isIdentityPos = exportScene.position.lengthSq() < 1e-10;
+
+      if (!isIdentityScale || !isIdentityRot || !isIdentityPos) {
+        const rootMat = exportScene.matrix.clone();
+        exportScene.traverse((obj) => {
+          if (obj.isMesh && obj.geometry) {
+            obj.geometry = obj.geometry.clone();
+            obj.geometry.applyMatrix4(rootMat);
+          }
+        });
+        exportScene.position.set(0, 0, 0);
+        exportScene.rotation.set(0, 0, 0);
+        exportScene.scale.set(1, 1, 1);
+      }
       exportScene.updateMatrixWorld(true);
 
-      // Rename bones according to mapping
+      // ── 6. Rename bones — ONLY change .name, never remove or reparent ──────
       exportScene.traverse((obj) => {
         if (!obj.isBone) return;
         for (const [mixamoName, entry] of Object.entries(boneMapping)) {
@@ -620,7 +688,7 @@ export function useCharacterEngine() {
         }
       });
 
-      // Attach vtube metadata to root userData
+      // ── 7. Attach vtube metadata ───────────────────────────────────────────
       exportScene.userData = {
         ...exportScene.userData,
         vtubeFaceMode: faceSetup.mode,
@@ -630,19 +698,35 @@ export function useCharacterEngine() {
           : {}),
       };
 
+      // ── 8. Export, then self-verify before triggering download ─────────────
       const exporter = new GLTFExporter();
       exporter.parse(
         exportScene,
         (buffer) => {
-          const blob = new Blob([buffer], { type: 'application/octet-stream' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `${char.name.replace(/\.[^.]+$/, '')}_vtube.glb`;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
+          const blob = new Blob([buffer], { type: 'model/gltf-binary' });
+          const verifyUrl = URL.createObjectURL(blob);
+          const verifyLoader = new GLTFLoader();
+          verifyLoader.load(
+            verifyUrl,
+            () => {
+              URL.revokeObjectURL(verifyUrl);
+              const dlUrl = URL.createObjectURL(
+                new Blob([buffer], { type: 'application/octet-stream' }),
+              );
+              const a = document.createElement('a');
+              a.href = dlUrl;
+              a.download = `${char.name.replace(/\.[^.]+$/, '')}_vtube.glb`;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(dlUrl);
+            },
+            undefined,
+            (err) => {
+              URL.revokeObjectURL(verifyUrl);
+              alert(`Export verification failed: ${err.message}\nThe file was not downloaded.`);
+            },
+          );
         },
         (err) => { alert(`Export failed: ${err?.message || String(err)}`); },
         { binary: true },

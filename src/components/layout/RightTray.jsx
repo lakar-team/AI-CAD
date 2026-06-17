@@ -381,7 +381,7 @@ export default function RightTray({
   if (appMode === 'character') {
     const inMapBones = characterEngine?.charPrepTool === 'mapbones';
     return (
-      <aside className="sk-tray" style={{ overflow: inMapBones ? 'hidden' : undefined }}>
+      <aside className="sk-tray" style={{ overflowY: inMapBones ? 'hidden' : 'auto', height: '100%' }}>
         <CharacterPanel characterEngine={characterEngine} aiConfig={aiConfig} />
         {!inMapBones && (
           <>

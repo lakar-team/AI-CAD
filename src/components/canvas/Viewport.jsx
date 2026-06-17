@@ -16,8 +16,119 @@ import { triangulateLoop } from '../../core/triangulate.js';
 import { add, sub, scale, normalize, cross, multiplyM4, identityM4, transformPoint, distance } from '../../core/math3.js';
 import { formatLength } from '../../core/units.js';
 import { AXIS_COLORS } from '../../core/inference.js';
+import { MIXAMO_JOINTS } from '../../hooks/useCharacterEngine.js';
 
 const SNAP_PIXELS = 9;
+
+// Reference T-pose skeleton joint positions in cm. Source: vtube RigConfig.
+const REF_JOINT_POS_CM = {
+  mixamorigHips:            [  0,   83,  0],
+  mixamorigSpine:           [  0,  100,  0],
+  mixamorigSpine1:          [  0,  116,  0],
+  mixamorigSpine2:          [  0,  133,  0],
+  mixamorigNeck:            [  0,  140,  0],
+  mixamorigHead:            [  0,  154,  0],
+  mixamorigLeftShoulder:    [ -8,  130,  0],
+  mixamorigLeftArm:         [-20,  130,  0],
+  mixamorigLeftForeArm:     [-46,  130,  0],
+  mixamorigLeftHand:        [-73,  130,  0],
+  mixamorigLeftHandThumb1:  [-74,  128,  2],
+  mixamorigLeftHandThumb2:  [-78,  126,  4],
+  mixamorigLeftHandThumb3:  [-81,  124,  5],
+  mixamorigLeftHandIndex1:  [-78,  130,  1],
+  mixamorigLeftHandIndex2:  [-82,  130,  1],
+  mixamorigLeftHandIndex3:  [-86,  130,  1],
+  mixamorigLeftHandMiddle1: [-78,  130,  0],
+  mixamorigLeftHandMiddle2: [-83,  130,  0],
+  mixamorigLeftHandMiddle3: [-87,  130,  0],
+  mixamorigLeftHandRing1:   [-78,  130, -1],
+  mixamorigLeftHandRing2:   [-82,  130, -1],
+  mixamorigLeftHandRing3:   [-86,  130, -1],
+  mixamorigLeftHandPinky1:  [-77,  130, -2],
+  mixamorigLeftHandPinky2:  [-80,  130, -2],
+  mixamorigLeftHandPinky3:  [-83,  130, -2],
+  mixamorigRightShoulder:   [  8,  130,  0],
+  mixamorigRightArm:        [ 20,  130,  0],
+  mixamorigRightForeArm:    [ 46,  130,  0],
+  mixamorigRightHand:       [ 73,  130,  0],
+  mixamorigRightHandThumb1: [ 74,  128,  2],
+  mixamorigRightHandThumb2: [ 78,  126,  4],
+  mixamorigRightHandThumb3: [ 81,  124,  5],
+  mixamorigRightHandIndex1: [ 78,  130,  1],
+  mixamorigRightHandIndex2: [ 82,  130,  1],
+  mixamorigRightHandIndex3: [ 86,  130,  1],
+  mixamorigRightHandMiddle1:[ 78,  130,  0],
+  mixamorigRightHandMiddle2:[ 83,  130,  0],
+  mixamorigRightHandMiddle3:[ 87,  130,  0],
+  mixamorigRightHandRing1:  [ 78,  130, -1],
+  mixamorigRightHandRing2:  [ 82,  130, -1],
+  mixamorigRightHandRing3:  [ 86,  130, -1],
+  mixamorigRightHandPinky1: [ 77,  130, -2],
+  mixamorigRightHandPinky2: [ 80,  130, -2],
+  mixamorigRightHandPinky3: [ 83,  130, -2],
+  mixamorigLeftUpLeg:       [-12,   83,  0],
+  mixamorigLeftLeg:         [-12,   38,  0],
+  mixamorigLeftFoot:        [-12,    4,  8],
+  mixamorigLeftToeBase:     [-12,    1, 15],
+  mixamorigRightUpLeg:      [ 12,   83,  0],
+  mixamorigRightLeg:        [ 12,   38,  0],
+  mixamorigRightFoot:       [ 12,    4,  8],
+  mixamorigRightToeBase:    [ 12,    1, 15],
+};
+
+const REF_SKELETON_EDGES = [
+  ['mixamorigHips','mixamorigSpine'],
+  ['mixamorigSpine','mixamorigSpine1'],
+  ['mixamorigSpine1','mixamorigSpine2'],
+  ['mixamorigSpine2','mixamorigNeck'],
+  ['mixamorigNeck','mixamorigHead'],
+  ['mixamorigSpine2','mixamorigLeftShoulder'],
+  ['mixamorigLeftShoulder','mixamorigLeftArm'],
+  ['mixamorigLeftArm','mixamorigLeftForeArm'],
+  ['mixamorigLeftForeArm','mixamorigLeftHand'],
+  ['mixamorigLeftHand','mixamorigLeftHandThumb1'],
+  ['mixamorigLeftHandThumb1','mixamorigLeftHandThumb2'],
+  ['mixamorigLeftHandThumb2','mixamorigLeftHandThumb3'],
+  ['mixamorigLeftHand','mixamorigLeftHandIndex1'],
+  ['mixamorigLeftHandIndex1','mixamorigLeftHandIndex2'],
+  ['mixamorigLeftHandIndex2','mixamorigLeftHandIndex3'],
+  ['mixamorigLeftHand','mixamorigLeftHandMiddle1'],
+  ['mixamorigLeftHandMiddle1','mixamorigLeftHandMiddle2'],
+  ['mixamorigLeftHandMiddle2','mixamorigLeftHandMiddle3'],
+  ['mixamorigLeftHand','mixamorigLeftHandRing1'],
+  ['mixamorigLeftHandRing1','mixamorigLeftHandRing2'],
+  ['mixamorigLeftHandRing2','mixamorigLeftHandRing3'],
+  ['mixamorigLeftHand','mixamorigLeftHandPinky1'],
+  ['mixamorigLeftHandPinky1','mixamorigLeftHandPinky2'],
+  ['mixamorigLeftHandPinky2','mixamorigLeftHandPinky3'],
+  ['mixamorigSpine2','mixamorigRightShoulder'],
+  ['mixamorigRightShoulder','mixamorigRightArm'],
+  ['mixamorigRightArm','mixamorigRightForeArm'],
+  ['mixamorigRightForeArm','mixamorigRightHand'],
+  ['mixamorigRightHand','mixamorigRightHandThumb1'],
+  ['mixamorigRightHandThumb1','mixamorigRightHandThumb2'],
+  ['mixamorigRightHandThumb2','mixamorigRightHandThumb3'],
+  ['mixamorigRightHand','mixamorigRightHandIndex1'],
+  ['mixamorigRightHandIndex1','mixamorigRightHandIndex2'],
+  ['mixamorigRightHandIndex2','mixamorigRightHandIndex3'],
+  ['mixamorigRightHand','mixamorigRightHandMiddle1'],
+  ['mixamorigRightHandMiddle1','mixamorigRightHandMiddle2'],
+  ['mixamorigRightHandMiddle2','mixamorigRightHandMiddle3'],
+  ['mixamorigRightHand','mixamorigRightHandRing1'],
+  ['mixamorigRightHandRing1','mixamorigRightHandRing2'],
+  ['mixamorigRightHandRing2','mixamorigRightHandRing3'],
+  ['mixamorigRightHand','mixamorigRightHandPinky1'],
+  ['mixamorigRightHandPinky1','mixamorigRightHandPinky2'],
+  ['mixamorigRightHandPinky2','mixamorigRightHandPinky3'],
+  ['mixamorigHips','mixamorigLeftUpLeg'],
+  ['mixamorigLeftUpLeg','mixamorigLeftLeg'],
+  ['mixamorigLeftLeg','mixamorigLeftFoot'],
+  ['mixamorigLeftFoot','mixamorigLeftToeBase'],
+  ['mixamorigHips','mixamorigRightUpLeg'],
+  ['mixamorigRightUpLeg','mixamorigRightLeg'],
+  ['mixamorigRightLeg','mixamorigRightFoot'],
+  ['mixamorigRightFoot','mixamorigRightToeBase'],
+];
 
 const INFERENCE_COLORS = {
   endpoint: '#21a121',
@@ -481,15 +592,18 @@ const BONE_STATUS_COLORS = {
   default: '#4488ff',
 };
 
-function BoneSphere({ boneObj, selected, mappingStatus }) {
+function BoneSphere({ boneObj, selected, mappingStatus, crossHighlighted }) {
   const ref = useRef();
   useFrame(() => {
     if (ref.current) boneObj.getWorldPosition(ref.current.position);
   });
-  const color = selected ? '#ff7722' : (BONE_STATUS_COLORS[mappingStatus] || BONE_STATUS_COLORS.default);
+  const color = selected ? '#ff7722'
+    : crossHighlighted ? '#44aaff'
+    : (BONE_STATUS_COLORS[mappingStatus] || BONE_STATUS_COLORS.default);
+  const sz = (selected || crossHighlighted) ? 0.045 : 0.028;
   return (
     <mesh ref={ref} renderOrder={15}>
-      <sphereGeometry args={[selected ? 0.045 : 0.028, 8, 8]} />
+      <sphereGeometry args={[sz, 8, 8]} />
       <meshBasicMaterial color={color} depthTest={false} />
     </mesh>
   );
@@ -508,19 +622,44 @@ function BoneVisualizer({ characterEngine }) {
     return h;
   }, [char]);
 
-  if (!char || !char.bones.length) return null;
-
-  const { selectedBoneId, boneMapping, charPrepTool } = characterEngine;
+  const { selectedBoneId, boneMapping, charPrepTool, selectedMixamoJoint } = characterEngine;
   const showMappingColors = charPrepTool === 'mapbones';
+
+  // Which model bone name is mapped to the currently selected Mixamo joint?
+  const crossHighlightBoneName = showMappingColors && selectedMixamoJoint
+    ? boneMapping[selectedMixamoJoint]?.sourceName || null
+    : null;
+
+  // Y position for the model label in mapbones mode
+  const labelY = useMemo(() => {
+    if (!char || !showMappingColors) return null;
+    const box = new THREE.Box3().setFromObject(char.scene);
+    return box.max.y + 0.15;
+  }, [char, showMappingColors]);
+
+  if (!char || !char.bones.length) return null;
 
   return (
     <group>
       {helper && <primitive object={helper} />}
+      {showMappingColors && labelY !== null && (
+        <Html position={[0, labelY, 0]} center style={{ pointerEvents: 'none' }}>
+          <div style={{
+            color: '#333', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap',
+            background: 'rgba(255,255,255,0.88)', padding: '2px 8px', borderRadius: 3,
+            boxShadow: '0 1px 4px rgba(0,0,0,0.18)',
+          }}>
+            {char.name.replace(/\.gl[bt]f?$/i, '')}
+          </div>
+        </Html>
+      )}
       {char.bones.map((bone) => {
         let mappingStatus = null;
+        let crossHighlighted = false;
         if (showMappingColors && boneMapping) {
           const entry = Object.values(boneMapping).find((e) => e.sourceName === bone.name);
           mappingStatus = entry?.status || 'unmapped';
+          crossHighlighted = !!(crossHighlightBoneName && bone.name === crossHighlightBoneName);
         }
         return (
           <BoneSphere
@@ -528,6 +667,92 @@ function BoneVisualizer({ characterEngine }) {
             boneObj={bone.object}
             selected={bone.id === selectedBoneId}
             mappingStatus={mappingStatus}
+            crossHighlighted={crossHighlighted}
+          />
+        );
+      })}
+    </group>
+  );
+}
+
+// ─── reference skeleton visualizer (mapbones mode) ────────────────────────────
+
+function RefBoneSphere({ posM, selected, status, crossHighlighted, onSelect }) {
+  const color = selected ? '#ff7722'
+    : crossHighlighted ? '#44aaff'
+    : (BONE_STATUS_COLORS[status] || BONE_STATUS_COLORS.default);
+  const sz = (selected || crossHighlighted) ? 0.045 : 0.028;
+  return (
+    <mesh position={posM} onClick={(e) => { e.stopPropagation(); onSelect(); }} renderOrder={15}>
+      <sphereGeometry args={[sz, 8, 8]} />
+      <meshBasicMaterial color={color} depthTest={false} />
+    </mesh>
+  );
+}
+
+function RefSkeletonVisualizer({ characterEngine }) {
+  const {
+    boneMapping, selectedMixamoJoint, setSelectedMixamoJoint,
+    selectedBoneId, characters, selectedCharId,
+  } = characterEngine;
+
+  // Name of the currently selected model bone (for cross-highlighting)
+  const selectedBoneName = useMemo(() => {
+    const char = characters.find((c) => c.id === selectedCharId);
+    return char?.bones.find((b) => b.id === selectedBoneId)?.name || null;
+  }, [selectedBoneId, characters, selectedCharId]);
+
+  // Place ref skeleton to the left of the loaded model's bounding box
+  const xOffset = useMemo(() => {
+    const char = characters.find((c) => c.id === selectedCharId);
+    if (!char) return -2;
+    const box = new THREE.Box3().setFromObject(char.scene);
+    // ref skeleton arm extends 0.87m right of its center; leave 0.3m gap
+    return Math.min(box.min.x - 0.87 - 0.3, -1.5);
+  }, [characters, selectedCharId]);
+
+  return (
+    <group position={[xOffset, 0, 0]}>
+      <Html position={[0, 1.68, 0]} center style={{ pointerEvents: 'none' }}>
+        <div style={{
+          color: '#333', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap',
+          background: 'rgba(255,255,255,0.88)', padding: '2px 8px', borderRadius: 3,
+          boxShadow: '0 1px 4px rgba(0,0,0,0.18)',
+        }}>
+          Mixamo Reference
+        </div>
+      </Html>
+
+      {REF_SKELETON_EDGES.map(([p, c]) => {
+        const a = REF_JOINT_POS_CM[p];
+        const b = REF_JOINT_POS_CM[c];
+        if (!a || !b) return null;
+        return (
+          <Line
+            key={`${p}-${c}`}
+            points={[[a[0]/100, a[1]/100, a[2]/100], [b[0]/100, b[1]/100, b[2]/100]]}
+            color="#aaa"
+            lineWidth={1}
+          />
+        );
+      })}
+
+      {MIXAMO_JOINTS.map((joint) => {
+        const cm = REF_JOINT_POS_CM[joint];
+        if (!cm) return null;
+        const posM = [cm[0] / 100, cm[1] / 100, cm[2] / 100];
+        const entry = boneMapping[joint];
+        const status = entry?.status || 'unmapped';
+        const selected = joint === selectedMixamoJoint;
+        const crossHighlighted = !selected && !!selectedBoneName && entry?.sourceName === selectedBoneName;
+        return (
+          <RefBoneSphere
+            key={joint}
+            posM={posM}
+            selected={selected}
+            status={status}
+            crossHighlighted={crossHighlighted}
+            onSelect={() => setSelectedMixamoJoint(selected ? null : joint)}
           />
         );
       })}
@@ -757,6 +982,9 @@ export default function Viewport({
           <primitive key={c.id} object={c.scene} />
         ))}
         {appMode === 'character' && <BoneVisualizer characterEngine={characterEngine} />}
+        {appMode === 'character' && characterEngine?.charPrepTool === 'mapbones' && (
+          <RefSkeletonVisualizer characterEngine={characterEngine} />
+        )}
         <InferenceMarker inference={inference} />
         <PreviewOverlay preview={preview} />
         <GuideLines guides={guides} />
