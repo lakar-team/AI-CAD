@@ -24,6 +24,16 @@ export default function App() {
   const { model, version } = engine;
   const characterEngine = useCharacterEngine();
   const [appMode, setAppMode] = useState('cad');
+  const sampleLoadedRef = useRef(false);
+
+  // Auto-load the sample character the first time character mode is entered
+  useEffect(() => {
+    if (appMode === 'character' && !sampleLoadedRef.current) {
+      sampleLoadedRef.current = true;
+      characterEngine.loadSampleModel('/samples/Soldier.glb', 'Soldier (sample)')
+        .catch((err) => console.warn('Sample model load failed:', err.message));
+    }
+  }, [appMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Ref to the VCB measurement input (for auto-focus on digit keypress)
   const measurementInputRef = useRef(null);
@@ -145,7 +155,7 @@ export default function App() {
         onBoxSelect={engine.selectByScreenBox}
         onGizmoAxisClick={engine.onGizmoAxisClick}
         appMode={appMode}
-        characters={characterEngine.characters}
+        characterEngine={characterEngine}
       />
 
       <RightTray

@@ -28,6 +28,8 @@ export default function LeftToolbar({ activeTool, setTool, appMode, characterEng
         activeTool={characterEngine.activeTool}
         setActiveTool={characterEngine.setActiveTool}
         importGLB={characterEngine.importGLB}
+        addChildBone={characterEngine.addChildBone}
+        hasSelection={!!characterEngine.selectedBoneId}
       />
     );
   }

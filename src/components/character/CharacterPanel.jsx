@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import * as THREE from 'three';
 import {
   ChevronRight, ChevronDown, Box, List, Info, Minus,
 } from 'lucide-react';
@@ -93,23 +94,31 @@ function BoneInspector({ selectedBone }) {
   if (!selectedBone) {
     return (
       <div style={{ color: 'var(--sk-text-light)', fontStyle: 'italic', fontSize: 11 }}>
-        No bone selected.
+        No bone selected. Click a joint sphere in the viewport.
       </div>
     );
   }
 
   const obj = selectedBone.object;
-  const px = (obj.position.x * 100).toFixed(2);
-  const py = (obj.position.y * 100).toFixed(2);
-  const pz = (obj.position.z * 100).toFixed(2);
+  // World position in cm — read live from the bone's current matrixWorld
+  // (worldPos cached at load time is unreliable before the scene is mounted)
+  const _wp = new THREE.Vector3();
+  obj.getWorldPosition(_wp);
+  const px = (_wp.x * 100).toFixed(1);
+  const py = (_wp.y * 100).toFixed(1);
+  const pz = (_wp.z * 100).toFixed(1);
+  // Euler rotation from the bone's local transform (degrees)
   const rx = (obj.rotation.x * (180 / Math.PI)).toFixed(1);
   const ry = (obj.rotation.y * (180 / Math.PI)).toFixed(1);
   const rz = (obj.rotation.z * (180 / Math.PI)).toFixed(1);
+  const lengthCm = ((selectedBone.lengthM || 0) * 100).toFixed(1);
 
   return (
     <>
       <Row label="Name" value={selectedBone.name || '(unnamed)'} />
-      <SectionLabel>POSITION (cm)</SectionLabel>
+      <Row label="Parent" value={selectedBone.parentName || '(root)'} />
+      <Row label="Length" value={`${lengthCm} cm`} />
+      <SectionLabel>WORLD POSITION (cm)</SectionLabel>
       <Row label="X" value={`${px} cm`} />
       <Row label="Y" value={`${py} cm`} />
       <Row label="Z" value={`${pz} cm`} />

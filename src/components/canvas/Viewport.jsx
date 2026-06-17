@@ -9,7 +9,7 @@
  */
 
 import React, { useMemo, useRef, useState, useCallback, useEffect } from 'react';
-import { Canvas, useThree } from '@react-three/fiber';
+import { Canvas, useThree, useFrame } from '@react-three/fiber';
 import { OrbitControls, GizmoHelper, GizmoViewport, Line, Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { triangulateLoop } from '../../core/triangulate.js';
@@ -472,6 +472,50 @@ function SelectionGizmo({ centroid, activeTool, gizmoMeshesRef, hoveredAxis }) {
   );
 }
 
+// ─── bone visualizer ──────────────────────────────────────────────────────────
+
+function BoneSphere({ boneObj, selected }) {
+  const ref = useRef();
+  useFrame(() => {
+    if (ref.current) boneObj.getWorldPosition(ref.current.position);
+  });
+  return (
+    <mesh ref={ref} renderOrder={15}>
+      <sphereGeometry args={[selected ? 0.045 : 0.028, 8, 8]} />
+      <meshBasicMaterial color={selected ? '#ff7722' : '#4488ff'} depthTest={false} />
+    </mesh>
+  );
+}
+
+function BoneVisualizer({ characterEngine }) {
+  const char = characterEngine?.characters?.find(
+    (c) => c.id === characterEngine.selectedCharId,
+  );
+
+  const helper = useMemo(() => {
+    if (!char?.bones.length) return null;
+    char.scene.updateMatrixWorld(true);
+    const h = new THREE.SkeletonHelper(char.scene);
+    h.update();
+    return h;
+  }, [char]);
+
+  useFrame(() => { helper?.update(); });
+
+  if (!char || !char.bones.length) return null;
+
+  const { selectedBoneId } = characterEngine;
+
+  return (
+    <group>
+      {helper && <primitive object={helper} />}
+      {char.bones.map((bone) => (
+        <BoneSphere key={bone.id} boneObj={bone.object} selected={bone.id === selectedBoneId} />
+      ))}
+    </group>
+  );
+}
+
 // ─── main viewport ────────────────────────────────────────────────────────────
 
 const CURSORS = {
@@ -606,7 +650,7 @@ export default function Viewport({
   onBoxSelect,
   onGizmoAxisClick,
   appMode,
-  characters,
+  characterEngine,
 }) {
   // Canvas container ref for bounding-rect lookups
   const canvasRef = useRef(null);
@@ -672,15 +716,17 @@ export default function Viewport({
 
         <Grid />
         <PointerRig
-          onRay={onPointerRay}
-          onClick={onClick}
-          onDoubleClick={onDoubleClick}
-          onBoxSelect={onBoxSelect}
+          onRay={appMode === 'character' ? () => {} : onPointerRay}
+          onClick={appMode === 'character'
+            ? (ray, radius) => characterEngine?.onCharacterClick(ray, radius)
+            : onClick}
+          onDoubleClick={appMode === 'character' ? () => {} : onDoubleClick}
+          onBoxSelect={appMode === 'character' ? () => {} : onBoxSelect}
           onBoxDrag={setBoxDrag}
-          enableBoxSelect={activeTool === 'select'}
+          enableBoxSelect={appMode !== 'character' && activeTool === 'select'}
           gizmoMeshesRef={gizmoMeshesRef}
           onGizmoHover={setHoveredGizmoAxis}
-          onGizmoClick={onGizmoAxisClick}
+          onGizmoClick={appMode === 'character' ? () => {} : onGizmoAxisClick}
         />
         <ModelRender
           model={model}
@@ -688,9 +734,10 @@ export default function Viewport({
           selection={selection}
           hoveredFaceId={hoveredFaceId}
         />
-        {appMode === 'character' && characters?.map((c) => (
+        {appMode === 'character' && characterEngine?.characters?.map((c) => (
           <primitive key={c.id} object={c.scene} />
         ))}
+        {appMode === 'character' && <BoneVisualizer characterEngine={characterEngine} />}
         <InferenceMarker inference={inference} />
         <PreviewOverlay preview={preview} />
         <GuideLines guides={guides} />
