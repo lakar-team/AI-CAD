@@ -239,6 +239,7 @@ function BoneMappingRightPanel({ characterEngine, aiConfig }) {
     boneMapping, selectedMixamoJoint, setSelectedMixamoJoint,
     selectedBoneId, confirmBoneMapping, confirmAllMappings,
     clearBoneMappingEntry, aiMapBones, isAiMappingBones, mappingStats,
+    swapLeftRight,
   } = characterEngine;
 
   return (
@@ -270,6 +271,22 @@ function BoneMappingRightPanel({ characterEngine, aiConfig }) {
             : <><Sparkles size={11} /> Ask AI</>
           }
         </PrepBtn>
+      </div>
+
+      {/* Swap L/R button — one click swaps all left↔right bone and blendshape assignments */}
+      <div style={{ padding: '5px 10px', borderBottom: '1px solid var(--sk-tray-border)', flexShrink: 0 }}>
+        <button
+          onClick={swapLeftRight}
+          title="Swap all Left ↔ Right bone and blendshape assignments at once"
+          style={{
+            width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            gap: 6, padding: '5px 8px', fontSize: 12, fontWeight: 700,
+            border: '1px solid var(--sk-tray-border)', borderRadius: 3,
+            background: '#1a4a7a', color: '#fff', cursor: 'pointer', fontFamily: 'inherit',
+          }}
+        >
+          <FlipHorizontal size={13} /> Swap Left ↔ Right
+        </button>
       </div>
 
       {/* Mixamo joint list */}

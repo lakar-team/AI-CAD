@@ -702,17 +702,24 @@ function RefSkeletonVisualizer({ characterEngine }) {
     return char?.bones.find((b) => b.id === selectedBoneId)?.name || null;
   }, [selectedBoneId, characters, selectedCharId]);
 
-  // Place ref skeleton to the left of the loaded model's bounding box
-  const xOffset = useMemo(() => {
+  // Scale ref skeleton to match the loaded model's height; place it to the left with a gap
+  const { displayScale, xOffset, yOffset } = useMemo(() => {
     const char = characters.find((c) => c.id === selectedCharId);
-    if (!char) return -2;
+    if (!char) return { displayScale: 1, xOffset: -2, yOffset: 0 };
     const box = new THREE.Box3().setFromObject(char.scene);
-    // ref skeleton arm extends 0.87m right of its center; leave 0.3m gap
-    return Math.min(box.min.x - 0.87 - 0.3, -1.5);
+    if (box.isEmpty()) return { displayScale: 1, xOffset: -2, yOffset: 0 };
+    const modelHeight = Math.max(box.max.y - box.min.y, 0.01);
+    // REF_JOINT_POS_CM head is at 154 cm = 1.54 m native scale
+    const refNativeHeightM = 1.54;
+    const s = modelHeight / refNativeHeightM;
+    // Rightmost ref point is right-hand fingers at 83 cm = 0.83 m (native).
+    // After scaling by s, that becomes 0.83*s. Add a 0.3*s proportional gap.
+    const x = box.min.x - 0.83 * s - 0.3 * s;
+    return { displayScale: s, xOffset: x, yOffset: box.min.y };
   }, [characters, selectedCharId]);
 
   return (
-    <group position={[xOffset, 0, 0]}>
+    <group position={[xOffset, yOffset, 0]} scale={[displayScale, displayScale, displayScale]}>
       <Html position={[0, 1.68, 0]} center style={{ pointerEvents: 'none' }}>
         <div style={{
           color: '#333', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap',
@@ -731,8 +738,8 @@ function RefSkeletonVisualizer({ characterEngine }) {
           <Line
             key={`${p}-${c}`}
             points={[[a[0]/100, a[1]/100, a[2]/100], [b[0]/100, b[1]/100, b[2]/100]]}
-            color="#aaa"
-            lineWidth={1}
+            color="#888"
+            lineWidth={2}
           />
         );
       })}

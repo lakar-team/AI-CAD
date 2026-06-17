@@ -603,6 +603,38 @@ export function useCharacterEngine() {
     setFaceSetup((s) => ({ ...s, blendshapeMap: { ...detected, ...s.blendshapeMap } }));
   }, [characters, selectedCharId]);
 
+  // ── Swap Left ↔ Right mappings ────────────────────────────────────────────
+
+  const swapLeftRight = useCallback(() => {
+    setBoneMapping((m) => {
+      const updated = { ...m };
+      for (const joint of MIXAMO_JOINTS) {
+        if (!joint.includes('Left')) continue;
+        const rightJoint = joint.replace('Left', 'Right');
+        if (!MIXAMO_JOINTS.includes(rightJoint)) continue;
+        const leftEntry = { ...(updated[joint] || { sourceName: null, status: 'unmapped' }) };
+        const rightEntry = { ...(updated[rightJoint] || { sourceName: null, status: 'unmapped' }) };
+        updated[joint] = rightEntry;
+        updated[rightJoint] = leftEntry;
+      }
+      return updated;
+    });
+    setFaceSetup((s) => {
+      const oldMap = s.blendshapeMap;
+      const newMap = { ...oldMap };
+      for (const arkitName of ARKIT_BLENDSHAPES) {
+        if (!arkitName.includes('Left')) continue;
+        const rightName = arkitName.replace('Left', 'Right');
+        if (!ARKIT_BLENDSHAPES.includes(rightName)) continue;
+        const leftVal = oldMap[arkitName] ?? null;
+        const rightVal = oldMap[rightName] ?? null;
+        if (rightVal) newMap[arkitName] = rightVal; else delete newMap[arkitName];
+        if (leftVal) newMap[rightName] = leftVal; else delete newMap[rightName];
+      }
+      return { ...s, blendshapeMap: newMap };
+    });
+  }, []);
+
   // ── Export for vtube ────────────────────────────────────────────────────────
 
   const exportForVtube = useCallback(async () => {
@@ -788,6 +820,7 @@ export function useCharacterEngine() {
     setBlendshapeMap,
     setFaceMesh,
     autoDetectBlendshapes,
+    swapLeftRight,
     exportForVtube,
   };
 }
