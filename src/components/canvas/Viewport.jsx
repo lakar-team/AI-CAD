@@ -496,11 +496,9 @@ function BoneVisualizer({ characterEngine }) {
     if (!char?.bones.length) return null;
     char.scene.updateMatrixWorld(true);
     const h = new THREE.SkeletonHelper(char.scene);
-    h.update();
+    h.updateMatrixWorld(true);
     return h;
   }, [char]);
-
-  useFrame(() => { helper?.update(); });
 
   if (!char || !char.bones.length) return null;
 
