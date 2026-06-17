@@ -510,6 +510,7 @@ export function useCharacterEngine() {
     addChildBone,
     selectCharacter: setSelectedCharId,
     selectBone: setSelectedBoneId,
+    setSelectedBoneId,
     selectedChar,
     selectedBone,
     // Prep pipeline
