@@ -16,7 +16,7 @@ import { triangulateLoop } from '../../core/triangulate.js';
 import { add, sub, scale, normalize, cross, multiplyM4, identityM4, transformPoint, distance } from '../../core/math3.js';
 import { formatLength } from '../../core/units.js';
 import { AXIS_COLORS } from '../../core/inference.js';
-import { MIXAMO_JOINTS } from '../../hooks/useCharacterEngine.js';
+import { MIXAMO_JOINTS } from '../../character/mixamoSpec.js';
 
 const SNAP_PIXELS = 9;
 

@@ -4,7 +4,7 @@ import {
   ChevronRight, ChevronDown, Box, List, Info, Minus, Trash2,
   Check, X, Sparkles, Loader, Download, Ruler, FlipHorizontal, ArrowDown,
 } from 'lucide-react';
-import { MIXAMO_JOINTS, ARKIT_BLENDSHAPES } from '../../hooks/useCharacterEngine.js';
+import { MIXAMO_JOINTS, ARKIT_BLENDSHAPES } from '../../character/mixamoSpec.js';
 
 // ─── Shared primitives ────────────────────────────────────────────────────────
 
