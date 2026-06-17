@@ -56,6 +56,8 @@ export default function TopBar({
   onMakeComponent,
   onExplode,
   hasSelection,
+  appMode,
+  onModeChange,
 }) {
   return (
     <header className="sk-topbar">
@@ -102,6 +104,23 @@ export default function TopBar({
           </span>
         )}
       </span>
+      <div className="sk-topbar-sep" />
+      <div className="sk-mode-selector">
+        <button
+          className={`sk-mode-btn ${appMode === 'cad' ? 'active' : ''}`}
+          onClick={() => onModeChange('cad')}
+          title="CAD Mode"
+        >
+          CAD
+        </button>
+        <button
+          className={`sk-mode-btn ${appMode === 'character' ? 'active' : ''}`}
+          onClick={() => onModeChange('character')}
+          title="Character Mode"
+        >
+          Character
+        </button>
+      </div>
     </header>
   );
 }

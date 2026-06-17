@@ -605,6 +605,8 @@ export default function Viewport({
   onDoubleClick,
   onBoxSelect,
   onGizmoAxisClick,
+  appMode,
+  characters,
 }) {
   // Canvas container ref for bounding-rect lookups
   const canvasRef = useRef(null);
@@ -686,6 +688,9 @@ export default function Viewport({
           selection={selection}
           hoveredFaceId={hoveredFaceId}
         />
+        {appMode === 'character' && characters?.map((c) => (
+          <primitive key={c.id} object={c.scene} />
+        ))}
         <InferenceMarker inference={inference} />
         <PreviewOverlay preview={preview} />
         <GuideLines guides={guides} />

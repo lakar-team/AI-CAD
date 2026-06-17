@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { formatLength, parseLength } from '../../core/units.js';
+import CharacterPanel from '../character/CharacterPanel.jsx';
 import {
   Info, List, MessageSquare, Settings, ChevronRight, ChevronDown,
   Box, Boxes, Component as ComponentIcon, Minus, Square,
@@ -372,8 +373,19 @@ export default function RightTray({
   units,
   onEditEdgeLength,
   onEditVertexPosition,
+  appMode,
+  characterEngine,
 }) {
   void version; // re-render driver
+
+  if (appMode === 'character') {
+    return (
+      <aside className="sk-tray">
+        <CharacterPanel characterEngine={characterEngine} />
+      </aside>
+    );
+  }
+
   return (
     <aside className="sk-tray">
       <Panel title="Entity Info" icon={Info} defaultOpen>

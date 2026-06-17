@@ -2,6 +2,7 @@ import {
   MousePointer2, Eraser, Pencil, Square, Circle,
   Maximize, Move, Ruler, Rotate3d, RectangleHorizontal, RulerDimensionLine,
 } from 'lucide-react';
+import CharacterToolbar from '../character/CharacterToolbar.jsx';
 
 const TOOLS = [
   { id: 'select', icon: MousePointer2, label: 'Select', key: 'Space' },
@@ -20,7 +21,17 @@ const TOOLS = [
   { id: 'orbit', icon: Rotate3d, label: 'Orbit (left-drag)', key: 'O' },
 ];
 
-export default function LeftToolbar({ activeTool, setTool }) {
+export default function LeftToolbar({ activeTool, setTool, appMode, characterEngine }) {
+  if (appMode === 'character') {
+    return (
+      <CharacterToolbar
+        activeTool={characterEngine.activeTool}
+        setActiveTool={characterEngine.setActiveTool}
+        importGLB={characterEngine.importGLB}
+      />
+    );
+  }
+
   return (
     <nav className="sk-toolbar">
       {TOOLS.map((t, i) => {

@@ -5,6 +5,7 @@ import RightTray from './components/layout/RightTray';
 import BottomBar from './components/layout/BottomBar';
 import Viewport from './components/canvas/Viewport';
 import { useCadEngine } from './hooks/useCadEngine';
+import { useCharacterEngine } from './hooks/useCharacterEngine';
 import { callAI } from './services/aiService';
 import { saveModelJSON, openModelJSON, exportModel } from './services/fileio';
 
@@ -21,6 +22,8 @@ const DRAW_TOOLS = new Set(['line', 'rect', 'circle', 'pushpull', 'move', 'tape'
 export default function App() {
   const engine = useCadEngine();
   const { model, version } = engine;
+  const characterEngine = useCharacterEngine();
+  const [appMode, setAppMode] = useState('cad');
 
   // Ref to the VCB measurement input (for auto-focus on digit keypress)
   const measurementInputRef = useRef(null);
@@ -111,9 +114,16 @@ export default function App() {
         onMakeComponent={engine.makeComponent}
         onExplode={engine.explodeSelected}
         hasSelection={engine.selection.size > 0}
+        appMode={appMode}
+        onModeChange={setAppMode}
       />
 
-      <LeftToolbar activeTool={engine.activeTool} setTool={engine.setActiveTool} />
+      <LeftToolbar
+        activeTool={engine.activeTool}
+        setTool={engine.setActiveTool}
+        appMode={appMode}
+        characterEngine={characterEngine}
+      />
 
       <Viewport
         model={model}
@@ -134,6 +144,8 @@ export default function App() {
         onDoubleClick={engine.onDoubleClick}
         onBoxSelect={engine.selectByScreenBox}
         onGizmoAxisClick={engine.onGizmoAxisClick}
+        appMode={appMode}
+        characters={characterEngine.characters}
       />
 
       <RightTray
@@ -149,6 +161,8 @@ export default function App() {
         units={engine.units}
         onEditEdgeLength={engine.editEdgeLength}
         onEditVertexPosition={engine.editVertexPosition}
+        appMode={appMode}
+        characterEngine={characterEngine}
       />
 
       <BottomBar
@@ -160,6 +174,8 @@ export default function App() {
         inputRef={measurementInputRef}
         units={engine.units}
         onUnitsChange={engine.changeUnits}
+        appMode={appMode}
+        characterEngine={characterEngine}
       />
     </div>
   );

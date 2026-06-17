@@ -25,7 +25,34 @@ export default function BottomBar({
   inputRef,
   units = 'm',
   onUnitsChange,
+  appMode,
+  characterEngine,
 }) {
+  if (appMode === 'character') {
+    const { characters, selectedChar } = characterEngine || {};
+    const totalVerts = selectedChar?.meshes.reduce((sum, m) => {
+      return sum + (m.object.geometry?.attributes?.position?.count || 0);
+    }, 0) || 0;
+    const boneCount = selectedChar?.bones.length || 0;
+    const status = characters?.length
+      ? `${characters.length} character(s) in scene`
+      : 'Import a GLB/GLTF model to get started';
+
+    return (
+      <footer className="sk-bottombar">
+        <span className="sk-status">{status}</span>
+        <div className="sk-measurements">
+          <span className="sk-measurements-label">
+            {selectedChar
+              ? `${totalVerts.toLocaleString()} verts · ${boneCount} bones`
+              : 'No selection'}
+          </span>
+          <span className="sk-units-badge">cm</span>
+        </div>
+      </footer>
+    );
+  }
+
   return (
     <footer className="sk-bottombar">
       <span className="sk-status">
