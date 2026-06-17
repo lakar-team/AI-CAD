@@ -30,6 +30,9 @@ export default function LeftToolbar({ activeTool, setTool, appMode, characterEng
         importGLB={characterEngine.importGLB}
         addChildBone={characterEngine.addChildBone}
         hasSelection={!!characterEngine.selectedBoneId}
+        charPrepTool={characterEngine.charPrepTool}
+        setCharPrepTool={characterEngine.setCharPrepTool}
+        characterEngine={characterEngine}
       />
     );
   }

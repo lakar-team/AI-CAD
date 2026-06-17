@@ -112,8 +112,13 @@ export default function App() {
     }
   }, [model, engine]);
 
+  const inMapBones = appMode === 'character' && characterEngine.charPrepTool === 'mapbones';
+
   return (
-    <div className="sk-layout">
+    <div
+      className="sk-layout"
+      style={inMapBones ? { '--toolbar-width': '190px' } : undefined}
+    >
       <TopBar
         projectName="Untitled"
         contextDepth={engine.enterContextDepth}

@@ -379,9 +379,20 @@ export default function RightTray({
   void version; // re-render driver
 
   if (appMode === 'character') {
+    const inMapBones = characterEngine?.charPrepTool === 'mapbones';
     return (
-      <aside className="sk-tray">
-        <CharacterPanel characterEngine={characterEngine} />
+      <aside className="sk-tray" style={{ overflow: inMapBones ? 'hidden' : undefined }}>
+        <CharacterPanel characterEngine={characterEngine} aiConfig={aiConfig} />
+        {!inMapBones && (
+          <>
+            <Panel title="AI Assistant" icon={MessageSquare} defaultOpen={false}>
+              <AIPanel chatHistory={chatHistory} onSend={onSendChat} isLoading={isLoading} />
+            </Panel>
+            <Panel title="AI Settings" icon={Settings} defaultOpen={false}>
+              <SettingsPanel aiConfig={aiConfig} onConfigChange={onAiConfigChange} />
+            </Panel>
+          </>
+        )}
       </aside>
     );
   }

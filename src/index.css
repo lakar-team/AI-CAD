@@ -718,6 +718,21 @@ body, html, #root {
   border-color: #c9302c;
 }
 
+/* ─── Character mode wide toolbar (Map Bones mode) ───────────── */
+.sk-toolbar--wide {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  align-items: stretch;
+}
+
+/* ─── Bone mapping panel ──────────────────────────────────────── */
+.sk-bmap-list {
+  overflow-y: auto;
+  flex: 1;
+}
+
+/* ─── Loading spinner ─────────────────────────────────────────── */
 /* Loading spinner */
 .sk-spinner {
   width: 10px;

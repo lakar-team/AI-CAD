@@ -474,15 +474,23 @@ function SelectionGizmo({ centroid, activeTool, gizmoMeshesRef, hoveredAxis }) {
 
 // ─── bone visualizer ──────────────────────────────────────────────────────────
 
-function BoneSphere({ boneObj, selected }) {
+const BONE_STATUS_COLORS = {
+  confirmed: '#22cc55',
+  auto: '#ff9900',
+  unmapped: '#cc3333',
+  default: '#4488ff',
+};
+
+function BoneSphere({ boneObj, selected, mappingStatus }) {
   const ref = useRef();
   useFrame(() => {
     if (ref.current) boneObj.getWorldPosition(ref.current.position);
   });
+  const color = selected ? '#ff7722' : (BONE_STATUS_COLORS[mappingStatus] || BONE_STATUS_COLORS.default);
   return (
     <mesh ref={ref} renderOrder={15}>
       <sphereGeometry args={[selected ? 0.045 : 0.028, 8, 8]} />
-      <meshBasicMaterial color={selected ? '#ff7722' : '#4488ff'} depthTest={false} />
+      <meshBasicMaterial color={color} depthTest={false} />
     </mesh>
   );
 }
@@ -502,14 +510,27 @@ function BoneVisualizer({ characterEngine }) {
 
   if (!char || !char.bones.length) return null;
 
-  const { selectedBoneId } = characterEngine;
+  const { selectedBoneId, boneMapping, charPrepTool } = characterEngine;
+  const showMappingColors = charPrepTool === 'mapbones';
 
   return (
     <group>
       {helper && <primitive object={helper} />}
-      {char.bones.map((bone) => (
-        <BoneSphere key={bone.id} boneObj={bone.object} selected={bone.id === selectedBoneId} />
-      ))}
+      {char.bones.map((bone) => {
+        let mappingStatus = null;
+        if (showMappingColors && boneMapping) {
+          const entry = Object.values(boneMapping).find((e) => e.sourceName === bone.name);
+          mappingStatus = entry?.status || 'unmapped';
+        }
+        return (
+          <BoneSphere
+            key={bone.id}
+            boneObj={bone.object}
+            selected={bone.id === selectedBoneId}
+            mappingStatus={mappingStatus}
+          />
+        );
+      })}
     </group>
   );
 }

@@ -245,6 +245,127 @@ async function callAnthropic(key, model, prompt, systemPrompt) {
   return JSON.parse(content);
 }
 
+// ─── Bone mapping AI call ─────────────────────────────────────────────────────
+// Returns a parsed { mixamorigName: sourceBodyName, ... } object.
+export async function callAIBoneMapping(config, unmappedMixamo, sourceBones) {
+  const { provider, apiKey, baseUrl, model } = config;
+
+  const systemPrompt =
+    'You are a 3D rigging assistant. Your only job is to match bone names.\n' +
+    'Return ONLY a JSON object with Mixamo joint names as keys and source bone names as values.\n' +
+    'No explanation, no markdown, just raw JSON.';
+
+  const userPrompt =
+    'TARGET joints (Mixamo standard — fill these):\n' +
+    unmappedMixamo.join(', ') +
+    '\n\nSOURCE bones from the loaded model:\n' +
+    sourceBones.join(', ') +
+    '\n\nRules:\n' +
+    '- Match each TARGET to the most likely SOURCE using name similarity.\n' +
+    '- "UpperArm_L" → mixamorigLeftArm, "Thigh.R" → mixamorigRightUpLeg, "Bip01 L Calf" → mixamorigLeftLeg\n' +
+    '- L/Left/_l/.l all mean Left; R/Right/_r/.r all mean Right.\n' +
+    '- If no reasonable match exists, omit that joint — do not guess wildly.\n' +
+    'Return ONLY a JSON object: { "mixamorigLeftArm": "UpperArm_L", ... }';
+
+  const parseResult = (text) => {
+    const clean = text.replace(/```json|```/g, '').trim();
+    const obj = JSON.parse(clean);
+    if (typeof obj !== 'object' || Array.isArray(obj)) throw new Error('Expected a JSON object');
+    return obj;
+  };
+
+  switch (provider) {
+    case 'openai':
+    case 'lmstudio':
+    case 'openrouter': {
+      const url = provider === 'openrouter'
+        ? 'https://openrouter.ai/api/v1'
+        : (baseUrl || 'https://api.openai.com/v1');
+      const headers = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      };
+      if (provider === 'openrouter') {
+        headers['HTTP-Referer'] = 'https://lakar-cad.local';
+        headers['X-Title'] = 'Lakar CAD';
+      }
+      const res = await fetch(`${url}/chat/completions`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          model: model || (provider === 'openrouter' ? 'google/gemini-2.5-flash' : 'gpt-4o'),
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          response_format: { type: 'json_object' },
+        }),
+      });
+      if (!res.ok) throw new Error(`AI error ${res.status}: ${await res.text()}`);
+      const data = await res.json();
+      return parseResult(data.choices?.[0]?.message?.content || '{}');
+    }
+    case 'gemini': {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model || 'gemini-2.5-flash'}:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            system_instruction: { parts: [{ text: systemPrompt }] },
+            contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+            generationConfig: { response_mime_type: 'application/json', temperature: 0.1 },
+          }),
+        },
+      );
+      if (!res.ok) throw new Error(`Gemini error ${res.status}: ${await res.text()}`);
+      const data = await res.json();
+      return parseResult(data.candidates?.[0]?.content?.parts?.[0]?.text || '{}');
+    }
+    case 'ollama': {
+      const res = await fetch(`${baseUrl || 'http://localhost:11434'}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: model || 'llama3',
+          prompt: `${systemPrompt}\n\n${userPrompt}\n\nRespond with ONLY valid JSON:`,
+          stream: false,
+          format: 'json',
+        }),
+      }).catch((e) => { throw new Error(`Cannot connect to Ollama: ${e.message}`); });
+      if (!res.ok) throw new Error(`Ollama error ${res.status}: ${await res.text()}`);
+      const data = await res.json();
+      return parseResult(data.response || '{}');
+    }
+    case 'anthropic': {
+      let res;
+      try {
+        res = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model: model || 'claude-sonnet-4-20250514',
+            max_tokens: 1024,
+            system: systemPrompt,
+            messages: [{ role: 'user', content: userPrompt }],
+          }),
+        });
+      } catch (e) {
+        throw new Error('Anthropic API blocked by CORS. Use OpenAI or a local model instead.');
+      }
+      if (!res.ok) throw new Error(`Anthropic error ${res.status}: ${await res.text()}`);
+      const data = await res.json();
+      return parseResult(data.content?.[0]?.text || '{}');
+    }
+    default:
+      throw new Error(`Unsupported provider: "${provider}"`);
+  }
+}
+
 async function callGemini(key, model, prompt, systemPrompt, imageUrl) {
   if (!key) throw new Error('API Key is missing. Please enter your Gemini key in Settings.');
 
