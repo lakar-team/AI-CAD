@@ -290,7 +290,8 @@ body, html, #root {
   border-left: 1px solid var(--sk-tray-border);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   z-index: 90;
 }
 

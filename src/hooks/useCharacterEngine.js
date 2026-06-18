@@ -68,13 +68,15 @@ export function useCharacterEngine() {
     const loader = new GLTFLoader();
     const gltf = await loader.loadAsync(url);
     const charData = processGltf(gltf, name);
-    setCharacters((prev) => [...prev, charData]);
+    setCharacters([charData]);
     setSelectedCharId(charData.id);
     setSelectedBoneId(null);
+    setSelectedMixamoJoint(null);
     const autoMap = autoDetectMapping(charData.bones);
     setBoneMapping(autoMap);
     const poseType = detectPoseType(charData.bones, autoMap);
     setPrepState({ poseType, scaleFactor: 1, grounded: false, facingFixed: false });
+    setFaceSetup({ mode: 'off', blendshapeMap: {}, faceMeshId: null });
   }, []);
 
   const removeCharacter = useCallback((id) => {

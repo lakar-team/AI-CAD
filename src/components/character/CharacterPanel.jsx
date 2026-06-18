@@ -2,7 +2,7 @@ import { useState } from 'react';
 import * as THREE from 'three';
 import {
   ChevronRight, ChevronDown, Box, List, Info, Minus, Trash2,
-  Check, X, Sparkles, Loader, Download, Ruler, FlipHorizontal, ArrowDown,
+  Check, X, Sparkles, Loader, Download, Ruler, FlipHorizontal, ArrowDown, RotateCcw,
 } from 'lucide-react';
 import { MIXAMO_JOINTS, ARKIT_BLENDSHAPES } from '../../character/mixamoSpec.js';
 
@@ -99,8 +99,8 @@ function PrepBtn({ children, onClick, disabled, variant }) {
 function SceneHierarchy({ characters, selectedCharId, selectedBoneId, onSelectChar, onSelectBone, onRemoveChar }) {
   if (!characters.length) {
     return (
-      <div style={{ color: 'var(--sk-text-light)', fontStyle: 'italic', fontSize: 11 }}>
-        No characters loaded. Use "Import Model" to load a GLB/GLTF file.
+      <div style={{ color: 'var(--sk-text-muted)', fontSize: 11, lineHeight: 1.5 }}>
+        No model loaded — click <strong>Import Model</strong> to begin.
       </div>
     );
   }
@@ -238,7 +238,7 @@ function BoneMappingRightPanel({ characterEngine, aiConfig }) {
   const {
     boneMapping, selectedMixamoJoint, setSelectedMixamoJoint,
     selectedBoneId, confirmBoneMapping, confirmAllMappings,
-    clearBoneMappingEntry, aiMapBones, isAiMappingBones, mappingStats,
+    clearBoneMappingEntry, setBoneMappingEntry, aiMapBones, isAiMappingBones, mappingStats,
     swapLeftRight,
   } = characterEngine;
 
@@ -337,6 +337,18 @@ function BoneMappingRightPanel({ characterEngine, aiConfig }) {
                   }}
                 >
                   <Check size={10} />
+                </button>
+              )}
+              {entry.sourceName && entry.status === 'confirmed' && !isSel && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); setBoneMappingEntry(joint, entry.sourceName); }}
+                  title="Un-confirm (reset to auto)"
+                  style={{
+                    background: 'none', border: 'none', cursor: 'pointer', padding: '0 1px',
+                    color: '#ff9900', display: 'flex', alignItems: 'center', flexShrink: 0,
+                  }}
+                >
+                  <RotateCcw size={10} />
                 </button>
               )}
               {entry.sourceName && !isSel && (
