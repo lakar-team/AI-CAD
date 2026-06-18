@@ -72,9 +72,8 @@ export function exportForVtube({ char, boneMapping, faceSetup }) {
       const clonedMesh = clonedSkinnedMeshes[i];
       if (!clonedMesh || !origMesh.skeleton) return;
       const newBones = origMesh.skeleton.bones.map((b) => boneRemap.get(b) || b);
-      const newInverses = origMesh.skeleton.boneInverses.map((m) => m.clone());
-      const newSkeleton = new THREE.Skeleton(newBones, newInverses);
-      clonedMesh.bind(newSkeleton, clonedMesh.matrixWorld);
+      const newSkeleton = new THREE.Skeleton(newBones);
+      clonedMesh.bind(newSkeleton); // auto-calculates inverses from post-bake world matrices
     });
 
     // ── 6. Rename bones — ONLY change .name, never remove or reparent ───────
