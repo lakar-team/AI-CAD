@@ -2,9 +2,9 @@ import { useState } from 'react';
 import * as THREE from 'three';
 import {
   ChevronRight, ChevronDown, Box, List, Info, Minus, Trash2,
-  Check, X, Sparkles, Loader, Download, Ruler, FlipHorizontal, ArrowDown, RotateCcw,
+  Download, Ruler, FlipHorizontal, ArrowDown,
 } from 'lucide-react';
-import { MIXAMO_JOINTS, ARKIT_BLENDSHAPES } from '../../character/mixamoSpec.js';
+import { ARKIT_BLENDSHAPES } from '../../character/mixamoSpec.js';
 
 // ─── Shared primitives ────────────────────────────────────────────────────────
 
@@ -222,151 +222,125 @@ function MeshProperties({ selectedChar }) {
   );
 }
 
-// ─── Bone Mapping Panel (right side when mapbones mode active) ────────────────
+// ─── Bone Rig Panel (right side when rig-edit mode active) ───────────────────
 
-function MappingStatusDot({ status }) {
-  const colors = { confirmed: '#22cc55', auto: '#ff9900', unmapped: '#cc3333' };
-  return (
-    <span style={{
-      width: 7, height: 7, borderRadius: '50%', display: 'inline-block', flexShrink: 0,
-      background: colors[status] || '#888',
-    }} />
-  );
-}
+const ROLE_COLORS = { driven: '#22cc55', spring: '#4488ff', locked: '#888888' };
 
-function BoneMappingRightPanel({ characterEngine, aiConfig }) {
+function BoneRigPanel({ characterEngine }) {
   const {
-    boneMapping, selectedMixamoJoint, setSelectedMixamoJoint,
-    selectedBoneId, confirmBoneMapping, confirmAllMappings,
-    clearBoneMappingEntry, setBoneMappingEntry, aiMapBones, isAiMappingBones, mappingStats,
-    swapLeftRight,
+    selectedBone, boneMapping, setBoneRole, setBoneRoleMulti, setBoneSpring,
+    selectedBoneIds, characters, selectedCharId,
   } = characterEngine;
+
+  const char = characters.find((c) => c.id === selectedCharId);
+  const stats = { driven: 0, spring: 0, locked: 0 };
+  if (char) {
+    for (const bone of char.bones) {
+      const r = boneMapping[bone.name]?.role || 'locked';
+      stats[r] = (stats[r] || 0) + 1;
+    }
+  }
+
+  const multiCount = selectedBoneIds?.size || 0;
+  const entry = selectedBone ? (boneMapping[selectedBone.name] || { role: 'locked' }) : null;
+  const role = entry?.role || 'locked';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      {/* Stats header */}
-      <div style={{
-        padding: '8px 10px', borderBottom: '1px solid var(--sk-tray-border)',
-        display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0, flexWrap: 'wrap',
-      }}>
-        <span style={{ fontSize: 11, color: 'var(--sk-text-muted)' }}>
-          <span style={{ color: '#22cc55', fontWeight: 700 }}>{mappingStats.confirmed}</span> confirmed,&nbsp;
-          <span style={{ color: '#ff9900', fontWeight: 700 }}>{mappingStats.mapped - mappingStats.confirmed}</span> auto,&nbsp;
-          <span style={{ color: '#cc3333', fontWeight: 700 }}>{mappingStats.total - mappingStats.mapped}</span> unmapped
-        </span>
-      </div>
-
-      {/* Action buttons */}
-      <div style={{ padding: '6px 10px', display: 'flex', gap: 4, flexWrap: 'wrap', borderBottom: '1px solid var(--sk-tray-border)', flexShrink: 0 }}>
-        <PrepBtn onClick={confirmAllMappings}>
-          <Check size={11} /> Confirm All
-        </PrepBtn>
-        <PrepBtn
-          onClick={() => aiMapBones(aiConfig)}
-          disabled={isAiMappingBones}
-          variant="primary"
-        >
-          {isAiMappingBones
-            ? <><Loader size={11} style={{ animation: 'spin 0.7s linear infinite' }} /> Mapping…</>
-            : <><Sparkles size={11} /> Ask AI</>
-          }
-        </PrepBtn>
-      </div>
-
-      {/* Swap L/R button — one click swaps all left↔right bone and blendshape assignments */}
-      <div style={{ padding: '5px 10px', borderBottom: '1px solid var(--sk-tray-border)', flexShrink: 0 }}>
-        <button
-          onClick={swapLeftRight}
-          title="Swap all Left ↔ Right bone and blendshape assignments at once"
-          style={{
-            width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            gap: 6, padding: '5px 8px', fontSize: 12, fontWeight: 700,
-            border: '1px solid var(--sk-tray-border)', borderRadius: 3,
-            background: '#1a4a7a', color: '#fff', cursor: 'pointer', fontFamily: 'inherit',
-          }}
-        >
-          <FlipHorizontal size={13} /> Swap Left ↔ Right
-        </button>
-      </div>
-
-      {/* Mixamo joint list */}
-      <div style={{ overflowY: 'auto', flex: 1 }}>
-        <div style={{ fontSize: 10, color: 'var(--sk-text-muted)', padding: '4px 10px 2px', fontWeight: 700, letterSpacing: '0.04em' }}>
-          MIXAMO JOINTS ({mappingStats.total})
+      {/* Stats */}
+      <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--sk-tray-border)', flexShrink: 0 }}>
+        <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'var(--sk-text-muted)' }}>
+          {['driven', 'spring', 'locked'].map((r) => (
+            <span key={r}>
+              <span style={{ color: ROLE_COLORS[r], fontWeight: 700 }}>{stats[r]}</span> {r}
+            </span>
+          ))}
         </div>
-        {MIXAMO_JOINTS.map((joint) => {
-          const entry = boneMapping[joint] || { sourceName: null, status: 'unmapped' };
-          const isSel = joint === selectedMixamoJoint;
-          const hasBoneSelected = !!selectedBoneId;
-
-          return (
-            <div
-              key={joint}
-              onClick={() => setSelectedMixamoJoint(isSel ? null : joint)}
-              title={hasBoneSelected
-                ? `Map selected bone → ${joint}`
-                : entry.sourceName ? `Mapped: ${entry.sourceName}` : 'Click to select, then click a model bone'}
-              style={{
-                display: 'flex', alignItems: 'center', gap: 5,
-                padding: '3px 10px', cursor: 'pointer',
-                background: isSel ? (hasBoneSelected ? '#1565c0' : '#1a9fdc') : 'transparent',
-                color: isSel ? '#fff' : 'var(--sk-text)',
-                fontSize: 11, userSelect: 'none',
-                borderLeft: `3px solid ${isSel ? (hasBoneSelected ? '#42a5f5' : '#fff') : 'transparent'}`,
-              }}
-            >
-              <MappingStatusDot status={entry.status} />
-              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {joint.replace('mixamorig', '')}
-              </span>
-              {entry.sourceName && (
-                <span style={{
-                  fontSize: 10, opacity: 0.75, overflow: 'hidden', textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap', maxWidth: 80, flexShrink: 0,
-                }}>
-                  {entry.sourceName}
-                </span>
-              )}
-              {entry.sourceName && entry.status === 'auto' && !isSel && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); confirmBoneMapping(joint); }}
-                  title="Confirm this mapping"
-                  style={{
-                    background: 'none', border: 'none', cursor: 'pointer', padding: '0 1px',
-                    color: '#22cc55', display: 'flex', alignItems: 'center', flexShrink: 0,
-                  }}
-                >
-                  <Check size={10} />
-                </button>
-              )}
-              {entry.sourceName && entry.status === 'confirmed' && !isSel && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); setBoneMappingEntry(joint, entry.sourceName); }}
-                  title="Un-confirm (reset to auto)"
-                  style={{
-                    background: 'none', border: 'none', cursor: 'pointer', padding: '0 1px',
-                    color: '#ff9900', display: 'flex', alignItems: 'center', flexShrink: 0,
-                  }}
-                >
-                  <RotateCcw size={10} />
-                </button>
-              )}
-              {entry.sourceName && !isSel && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); clearBoneMappingEntry(joint); }}
-                  title="Remove this mapping"
-                  style={{
-                    background: 'none', border: 'none', cursor: 'pointer', padding: '0 1px',
-                    color: '#cc3333', display: 'flex', alignItems: 'center', flexShrink: 0,
-                  }}
-                >
-                  <X size={10} />
-                </button>
-              )}
-            </div>
-          );
-        })}
       </div>
+
+      {/* Bulk-set toolbar (multi-select) */}
+      {multiCount > 1 && (
+        <div style={{ padding: '6px 10px', borderBottom: '1px solid var(--sk-tray-border)', flexShrink: 0 }}>
+          <div style={{ fontSize: 10, color: 'var(--sk-text-muted)', marginBottom: 4 }}>
+            Set {multiCount} selected bones to:
+          </div>
+          <div style={{ display: 'flex', gap: 4 }}>
+            {['driven', 'spring', 'locked'].map((r) => (
+              <PrepBtn key={r} onClick={() => {
+                const names = char?.bones.filter((b) => selectedBoneIds.has(b.id)).map((b) => b.name) || [];
+                setBoneRoleMulti(names, r);
+              }}>
+                {r}
+              </PrepBtn>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Single bone editor */}
+      {selectedBone && entry ? (
+        <div style={{ padding: '8px 10px', overflowY: 'auto', flex: 1 }}>
+          <Row label="Bone" value={selectedBone.name} />
+
+          <SectionLabel>ROLE</SectionLabel>
+          <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+            {['driven', 'spring', 'locked'].map((r) => (
+              <button
+                key={r}
+                onClick={() => setBoneRole(selectedBone.name, r)}
+                style={{
+                  flex: 1, padding: '4px 2px', fontSize: 10,
+                  border: `1px solid ${role === r ? ROLE_COLORS[r] : 'var(--sk-tray-border)'}`,
+                  borderRadius: 3, cursor: 'pointer',
+                  background: role === r ? ROLE_COLORS[r] : 'var(--sk-tray-header)',
+                  color: role === r ? '#fff' : 'var(--sk-text)',
+                  fontFamily: 'inherit', textTransform: 'capitalize',
+                }}
+              >
+                {r}
+              </button>
+            ))}
+          </div>
+
+          {role === 'driven' && (entry.jointFrom || entry.jointTo) && (
+            <>
+              <SectionLabel>MEDIAPIPE JOINTS</SectionLabel>
+              <Row label="From" value={entry.jointFrom || '—'} />
+              <Row label="To" value={entry.jointTo || '—'} />
+            </>
+          )}
+
+          {role === 'driven' && entry.length != null && (
+            <>
+              <SectionLabel>BIND POSE</SectionLabel>
+              <Row label="Length" value={`${(entry.length * 100).toFixed(1)} cm`} />
+              {entry.restDir && (
+                <Row label="RestDir" value={entry.restDir.map((v) => v.toFixed(2)).join(', ')} />
+              )}
+            </>
+          )}
+
+          {role === 'spring' && (
+            <>
+              <SectionLabel>SPRING PARAMS</SectionLabel>
+              <EditableRow
+                label="Stiffness"
+                value={(entry.stiffness ?? 0.8).toFixed(2)}
+                onCommit={(v) => setBoneSpring(selectedBone.name, { stiffness: v })}
+              />
+              <EditableRow
+                label="Damping"
+                value={(entry.damping ?? 0.3).toFixed(2)}
+                onCommit={(v) => setBoneSpring(selectedBone.name, { damping: v })}
+              />
+            </>
+          )}
+        </div>
+      ) : (
+        <div style={{ padding: '12px 10px', color: 'var(--sk-text-muted)', fontSize: 11, fontStyle: 'italic' }}>
+          Click a bone in the left panel to edit its rig role.
+        </div>
+      )}
     </div>
   );
 }
@@ -531,16 +505,14 @@ function FaceSetupPanel({ characterEngine }) {
 // ─── Export Panel ─────────────────────────────────────────────────────────────
 
 function ExportPanel({ characterEngine }) {
-  const { exportForVtube, selectedChar, mappingStats } = characterEngine;
-  const mapped = mappingStats.mapped;
-  const total = mappingStats.total;
+  const { exportForVtube, selectedChar, rigStats } = characterEngine;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div style={{ fontSize: 11, color: 'var(--sk-text-muted)' }}>
-        Bone mapping: <strong>{mapped}/{total}</strong> joints mapped
-        {mappingStats.confirmed < mapped && (
-          <span style={{ color: '#ff9900' }}> ({mapped - mappingStats.confirmed} pending confirmation)</span>
-        )}
+        Rig:&nbsp;
+        <span style={{ color: '#22cc55', fontWeight: 700 }}>{rigStats.driven}</span> driven,&nbsp;
+        <span style={{ color: '#4488ff', fontWeight: 700 }}>{rigStats.spring}</span> spring,&nbsp;
+        <span style={{ color: '#888', fontWeight: 700 }}>{rigStats.locked}</span> locked
       </div>
       <PrepBtn
         variant="primary"
@@ -550,15 +522,15 @@ function ExportPanel({ characterEngine }) {
         <Download size={11} /> Export for vtube (.glb)
       </PrepBtn>
       <div style={{ fontSize: 10, color: 'var(--sk-text-light)' }}>
-        Renames bones to Mixamo convention, stores face mode metadata, exports binary GLB.
+        Exports binary GLB with original bone names. Rig recipe stored in userData.vtubeRig.
       </div>
     </div>
   );
 }
 
-// ─── Bone Mapping Panel (wrapper for right tray in mapbones mode) ─────────────
+// ─── Bone Rig wrapper (right tray in rig-edit mode) ──────────────────────────
 
-function BoneMappingWrapper({ characterEngine, aiConfig }) {
+function BoneRigWrapper({ characterEngine }) {
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <div style={{
@@ -566,12 +538,9 @@ function BoneMappingWrapper({ characterEngine, aiConfig }) {
         background: 'var(--sk-tray-header)', fontSize: 12, fontWeight: 700, flexShrink: 0,
         display: 'flex', alignItems: 'center', gap: 6,
       }}>
-        Mixamo Joints
+        Bone Rig
       </div>
-      <div style={{ fontSize: 10, color: 'var(--sk-text-muted)', padding: '3px 10px', flexShrink: 0 }}>
-        Select a model bone (left) then click a joint here to map them.
-      </div>
-      <BoneMappingRightPanel characterEngine={characterEngine} aiConfig={aiConfig} />
+      <BoneRigPanel characterEngine={characterEngine} />
     </div>
   );
 }
@@ -585,9 +554,9 @@ export default function CharacterPanel({ characterEngine, aiConfig }) {
     removeCharacter, setBoneTransform, charPrepTool,
   } = characterEngine;
 
-  // In Map Bones mode: show Mixamo joint list (right side of the two-column mapping UI)
+  // In rig-edit mode: show bone role editor (right side of the two-column layout)
   if (charPrepTool === 'mapbones') {
-    return <BoneMappingWrapper characterEngine={characterEngine} aiConfig={aiConfig} />;
+    return <BoneRigWrapper characterEngine={characterEngine} />;
   }
 
   // Normal character mode panels

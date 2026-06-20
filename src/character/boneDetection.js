@@ -145,28 +145,25 @@ export function autoDetectMapping(bones) {
   return result;
 }
 
-export function detectPoseType(bones, mapping) {
-  const leftArmEntry = mapping['mixamorigLeftArm'];
-  if (!leftArmEntry?.sourceName) return null;
-  const leftArmBone = bones.find((b) => b.name === leftArmEntry.sourceName);
+export function detectPoseType(bones, boneRig) {
+  const leftArmEntry = Object.entries(boneRig).find(
+    ([, v]) => v.role === 'driven' && v.jointFrom === 'shL' && v.jointTo === 'elL',
+  );
+  if (!leftArmEntry) return null;
+  const leftArmBone = bones.find((b) => b.name === leftArmEntry[0]);
   if (!leftArmBone) return null;
-
-  const forearmEntry = mapping['mixamorigLeftForeArm'];
-  const forearmBone = forearmEntry?.sourceName
-    ? bones.find((b) => b.name === forearmEntry.sourceName)
-    : null;
-  const childBone = forearmBone || (leftArmBone.object.children.find((c) => c.isBone)
-    ? { object: leftArmBone.object.children.find((c) => c.isBone) }
-    : null);
-  if (!childBone) return null;
-
+  const leftForeEntry = Object.entries(boneRig).find(
+    ([, v]) => v.role === 'driven' && v.jointFrom === 'elL' && v.jointTo === 'wrL',
+  );
+  const forearmBone = leftForeEntry ? bones.find((b) => b.name === leftForeEntry[0]) : null;
+  const childObj = forearmBone?.object || leftArmBone.object.children.find((c) => c.isBone);
+  if (!childObj) return null;
   const armWp = new THREE.Vector3();
   const foreWp = new THREE.Vector3();
   leftArmBone.object.getWorldPosition(armWp);
-  childBone.object.getWorldPosition(foreWp);
+  (forearmBone ? forearmBone.object : childObj).getWorldPosition(foreWp);
   const dir = foreWp.sub(armWp).normalize();
   const absY = Math.abs(dir.y);
-
   if (absY < 0.15) return 'tpose';
   if (absY < 0.6) return 'apose';
   return 'other';
@@ -223,6 +220,69 @@ export function enrichBones(rawBones) {
     }
     return { ...b, worldPos, parentName, lengthM };
   });
+}
+
+const MIXAMO_TO_MEDIAPIPE = {
+  mixamorigHips:          { jointFrom: 'hipMid', jointTo: null },
+  mixamorigSpine:         { jointFrom: 'hipMid', jointTo: null },
+  mixamorigSpine1:        { jointFrom: 'hipMid', jointTo: 'shMid' },
+  mixamorigSpine2:        { jointFrom: 'hipMid', jointTo: 'shMid' },
+  mixamorigNeck:          { jointFrom: 'shMid',  jointTo: 'headC' },
+  mixamorigHead:          { jointFrom: 'headC',  jointTo: null },
+  mixamorigLeftShoulder:  { jointFrom: 'shMid',  jointTo: 'shL' },
+  mixamorigLeftArm:       { jointFrom: 'shL',    jointTo: 'elL' },
+  mixamorigLeftForeArm:   { jointFrom: 'elL',    jointTo: 'wrL' },
+  mixamorigLeftHand:      { jointFrom: 'wrL',    jointTo: null },
+  mixamorigRightShoulder: { jointFrom: 'shMid',  jointTo: 'shR' },
+  mixamorigRightArm:      { jointFrom: 'shR',    jointTo: 'elR' },
+  mixamorigRightForeArm:  { jointFrom: 'elR',    jointTo: 'wrR' },
+  mixamorigRightHand:     { jointFrom: 'wrR',    jointTo: null },
+  mixamorigLeftUpLeg:     { jointFrom: 'hipMid', jointTo: 'knL' },
+  mixamorigLeftLeg:       { jointFrom: 'knL',    jointTo: 'anL' },
+  mixamorigLeftFoot:      { jointFrom: 'anL',    jointTo: 'toeL' },
+  mixamorigLeftToeBase:   { jointFrom: 'toeL',   jointTo: null },
+  mixamorigRightUpLeg:    { jointFrom: 'hipMid', jointTo: 'knR' },
+  mixamorigRightLeg:      { jointFrom: 'knR',    jointTo: 'anR' },
+  mixamorigRightFoot:     { jointFrom: 'anR',    jointTo: 'toeR' },
+  mixamorigRightToeBase:  { jointFrom: 'toeR',   jointTo: null },
+};
+
+function computeRestDirLength(boneObj) {
+  const childBone = boneObj.children.find((c) => c.isBone);
+  if (!childBone) return { restDir: null, length: null };
+  const boneWPos = new THREE.Vector3();
+  const childWPos = new THREE.Vector3();
+  boneObj.getWorldPosition(boneWPos);
+  childBone.getWorldPosition(childWPos);
+  const length = boneWPos.distanceTo(childWPos);
+  if (length < 1e-6) return { restDir: null, length: 0 };
+  const worldDir = childWPos.clone().sub(boneWPos).normalize();
+  const worldQ = new THREE.Quaternion();
+  boneObj.getWorldQuaternion(worldQ);
+  const localDir = worldDir.applyQuaternion(worldQ.clone().invert());
+  return { restDir: [localDir.x, localDir.y, localDir.z], length };
+}
+
+export function buildBoneRig(bones) {
+  const detected = autoDetectMapping(bones);
+  const sourceToMixamo = {};
+  for (const [mixamoName, entry] of Object.entries(detected)) {
+    if (entry.sourceName && entry.status !== 'unmapped') {
+      sourceToMixamo[entry.sourceName] = mixamoName;
+    }
+  }
+  const boneRig = {};
+  for (const bone of bones) {
+    const mixamoName = sourceToMixamo[bone.name];
+    if (mixamoName) {
+      const mp = MIXAMO_TO_MEDIAPIPE[mixamoName] || { jointFrom: null, jointTo: null };
+      const { restDir, length } = computeRestDirLength(bone.object);
+      boneRig[bone.name] = { role: 'driven', jointFrom: mp.jointFrom, jointTo: mp.jointTo, restDir, length };
+    } else {
+      boneRig[bone.name] = { role: 'locked' };
+    }
+  }
+  return boneRig;
 }
 
 export function processGltf(gltf, name) {

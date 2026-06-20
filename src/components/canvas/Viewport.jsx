@@ -603,11 +603,11 @@ function SelectionGizmo({ centroid, activeTool, gizmoMeshesRef, hoveredAxis }) {
 
 // ─── bone visualizer ──────────────────────────────────────────────────────────
 
-const BONE_STATUS_COLORS = {
-  confirmed: '#22cc55',
-  auto: '#ff9900',
-  unmapped: '#cc3333',
-  default: '#4488ff',
+const BONE_ROLE_COLORS = {
+  driven: '#22cc55',
+  spring: '#4488ff',
+  locked: '#888888',
+  default: '#888888',
 };
 
 function BoneSphere({ boneObj, selected, mappingStatus, crossHighlighted }) {
@@ -617,7 +617,7 @@ function BoneSphere({ boneObj, selected, mappingStatus, crossHighlighted }) {
   });
   const color = selected ? '#ff7722'
     : crossHighlighted ? '#44aaff'
-    : (BONE_STATUS_COLORS[mappingStatus] || BONE_STATUS_COLORS.default);
+    : (BONE_ROLE_COLORS[mappingStatus] || BONE_ROLE_COLORS.default);
   const sz = (selected || crossHighlighted) ? 0.045 : 0.028;
   return (
     <mesh ref={ref} renderOrder={15}>
@@ -640,13 +640,8 @@ function BoneVisualizer({ characterEngine }) {
     return h;
   }, [char]);
 
-  const { selectedBoneId, boneMapping, charPrepTool, selectedMixamoJoint } = characterEngine;
+  const { selectedBoneId, boneMapping, charPrepTool } = characterEngine;
   const showMappingColors = charPrepTool === 'mapbones';
-
-  // Which model bone name is mapped to the currently selected Mixamo joint?
-  const crossHighlightBoneName = showMappingColors && selectedMixamoJoint
-    ? boneMapping[selectedMixamoJoint]?.sourceName || null
-    : null;
 
   // Y position for the model label in mapbones mode
   const labelY = useMemo(() => {
@@ -672,20 +667,16 @@ function BoneVisualizer({ characterEngine }) {
         </Html>
       )}
       {char.bones.map((bone) => {
-        let mappingStatus = null;
-        let crossHighlighted = false;
-        if (showMappingColors && boneMapping) {
-          const entry = Object.values(boneMapping).find((e) => e.sourceName === bone.name);
-          mappingStatus = entry?.status || 'unmapped';
-          crossHighlighted = !!(crossHighlightBoneName && bone.name === crossHighlightBoneName);
-        }
+        const mappingStatus = showMappingColors && boneMapping
+          ? (boneMapping[bone.name]?.role || 'locked')
+          : null;
         return (
           <BoneSphere
             key={bone.id}
             boneObj={bone.object}
             selected={bone.id === selectedBoneId}
             mappingStatus={mappingStatus}
-            crossHighlighted={crossHighlighted}
+            crossHighlighted={false}
           />
         );
       })}
@@ -698,7 +689,7 @@ function BoneVisualizer({ characterEngine }) {
 function RefBoneSphere({ posM, selected, status, crossHighlighted, onSelect }) {
   const color = selected ? '#ff7722'
     : crossHighlighted ? '#44aaff'
-    : (BONE_STATUS_COLORS[status] || BONE_STATUS_COLORS.default);
+    : (BONE_ROLE_COLORS[status] || BONE_ROLE_COLORS.default);
   const sz = (selected || crossHighlighted) ? 0.045 : 0.028;
   return (
     <mesh position={posM} onClick={(e) => { e.stopPropagation(); onSelect(); }} renderOrder={15}>
@@ -1008,9 +999,6 @@ export default function Viewport({
           <primitive key={c.id} object={c.scene} />
         ))}
         {appMode === 'character' && <BoneVisualizer characterEngine={characterEngine} />}
-        {appMode === 'character' && characterEngine?.charPrepTool === 'mapbones' && (
-          <RefSkeletonVisualizer characterEngine={characterEngine} />
-        )}
         <InferenceMarker inference={inference} />
         <PreviewOverlay preview={preview} />
         <GuideLines guides={guides} />

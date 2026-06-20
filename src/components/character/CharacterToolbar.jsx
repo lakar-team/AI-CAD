@@ -1,19 +1,16 @@
 import { useRef } from 'react';
 import { MousePointer2, Upload, GitBranch, Box, Pencil, Palette, Map, ArrowLeft } from 'lucide-react';
 
-// ─── Model bone list (shown in left panel when mapbones mode is active) ──────
-
-function statusColor(status) {
-  if (status === 'confirmed') return '#22cc55';
-  if (status === 'auto') return '#ff9900';
-  if (status === 'unmapped') return '#cc3333';
-  return '#4488ff';
+function roleColor(role) {
+  if (role === 'driven') return '#22cc55';
+  if (role === 'spring') return '#4488ff';
+  return '#888888';
 }
 
 function ModelBoneList({ characterEngine }) {
   const {
-    characters, selectedCharId, selectedBoneId, boneMapping,
-    setSelectedBoneId, setSelectedMixamoJoint, selectedMixamoJoint,
+    characters, selectedCharId, selectedBoneId, selectedBoneIds, boneMapping,
+    setSelectedBoneId, toggleBoneId,
   } = characterEngine;
 
   const char = characters.find((c) => c.id === selectedCharId);
@@ -31,14 +28,20 @@ function ModelBoneList({ characterEngine }) {
         MODEL BONES ({char.bones.length})
       </div>
       {char.bones.map((bone) => {
-        const mappingEntry = Object.values(boneMapping).find((e) => e.sourceName === bone.name);
-        const status = mappingEntry?.status || 'unmapped';
-        const isSel = bone.id === selectedBoneId;
+        const entry = boneMapping[bone.name];
+        const role = entry?.role || 'locked';
+        const isSel = selectedBoneIds?.has(bone.id) || bone.id === selectedBoneId;
         return (
           <div
             key={bone.id}
-            onClick={() => setSelectedBoneId(bone.id === selectedBoneId ? null : bone.id)}
-            title={`Click to select — then click a Mixamo joint to map`}
+            onClick={(e) => {
+              if (e.shiftKey) {
+                toggleBoneId?.(bone.id);
+              } else {
+                setSelectedBoneId(bone.id === selectedBoneId ? null : bone.id);
+              }
+            }}
+            title={`${bone.name} — ${role} (shift+click to multi-select)`}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -48,13 +51,13 @@ function ModelBoneList({ characterEngine }) {
               background: isSel ? '#1a9fdc' : 'transparent',
               color: isSel ? '#fff' : '#d0d0d0',
               fontSize: 11,
-              borderLeft: isSel ? '3px solid #fff' : `3px solid ${statusColor(status)}`,
+              borderLeft: isSel ? '3px solid #fff' : `3px solid ${roleColor(role)}`,
               userSelect: 'none',
             }}
           >
             <span style={{
               width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
-              background: isSel ? '#fff' : statusColor(status),
+              background: isSel ? '#fff' : roleColor(role),
             }} />
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
               {bone.name || `bone_${bone.id.slice(0, 6)}`}
@@ -73,7 +76,7 @@ const CHAR_TOOLS = [
   { sep: true },
   { id: 'import', icon: Upload, label: 'Import Model', action: 'import' },
   { sep: true },
-  { id: 'mapbones', icon: Map, label: 'Map Bones', action: 'mapbones' },
+  { id: 'mapbones', icon: Map, label: 'Edit Rig', action: 'mapbones' },
   { sep: true },
   { id: 'bone', icon: GitBranch, label: 'Add Child Bone', action: 'addbone' },
   { id: 'mesh', icon: Box, label: 'Edit Mesh', placeholder: true },
@@ -95,7 +98,7 @@ export default function CharacterToolbar({
     e.target.value = '';
   };
 
-  // ── Bone map mode: wide left panel with model bones ─────────────────────────
+  // ── Rig edit mode: wide left panel with model bones ─────────────────────────
   if (charPrepTool === 'mapbones') {
     return (
       <nav className="sk-toolbar sk-toolbar--wide" style={{ alignItems: 'stretch', padding: 0 }}>
@@ -113,18 +116,18 @@ export default function CharacterToolbar({
           >
             <ArrowLeft size={14} />
           </button>
-          <span style={{ color: '#d0d0d0', fontSize: 11, fontWeight: 700 }}>MAP BONES</span>
+          <span style={{ color: '#d0d0d0', fontSize: 11, fontWeight: 700 }}>EDIT RIG</span>
         </div>
         <div style={{ fontSize: 10, color: '#888', padding: '4px 10px', flexShrink: 0 }}>
-          <span style={{ color: '#22cc55', marginRight: 4 }}>●</span>confirmed&nbsp;
-          <span style={{ color: '#ff9900', marginRight: 4 }}>●</span>auto&nbsp;
-          <span style={{ color: '#cc3333' }}>●</span>unmapped
+          <span style={{ color: '#22cc55', marginRight: 4 }}>●</span>driven&nbsp;
+          <span style={{ color: '#4488ff', marginRight: 4 }}>●</span>spring&nbsp;
+          <span style={{ color: '#888' }}>●</span>locked
         </div>
         <ModelBoneList characterEngine={characterEngine} />
         <div style={{
           padding: '6px 10px', borderTop: '1px solid #2a2d2f', fontSize: 10, color: '#888', flexShrink: 0,
         }}>
-          Click a bone (left) then a Mixamo joint (right) to map them
+          Click bone to select · Shift+click to multi-select
         </div>
       </nav>
     );

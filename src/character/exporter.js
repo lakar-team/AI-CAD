@@ -8,13 +8,12 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
  * 2. Deep-clone the scene
  * 3. Bake root transform (scale/rotation/position) into geometry vertices — reset root to identity
  * 4. updateMatrixWorld(true) — all bone world matrices now in identity-root space
- * 5. Collect cloned nodes in same traversal order, then rebind skeletons
- * 6. Rename bones by boneMapping (only .name, never remove or reparent)
- * 7. Attach userData metadata
- * 8. Export via GLTFExporter (binary)
- * 9. Self-verify: reload with GLTFLoader before resolving
+ * 5. Collect cloned nodes in same order, rebind skeletons (auto-calculate inverses from post-bake world matrices)
+ * 6. Attach vtubeRig + face metadata to userData — bones keep their ORIGINAL names
+ * 7. Export via GLTFExporter (binary)
+ * 8. Self-verify: reload with GLTFLoader before resolving
  */
-export function exportForVtube({ char, boneMapping, faceSetup }) {
+export function exportForVtube({ char, boneRig, faceSetup }) {
   return new Promise((resolve, reject) => {
     // ── 1. Record traversal order BEFORE clone ──────────────────────────────
     const origBones = [];
@@ -76,20 +75,10 @@ export function exportForVtube({ char, boneMapping, faceSetup }) {
       clonedMesh.bind(newSkeleton); // auto-calculates inverses from post-bake world matrices
     });
 
-    // ── 6. Rename bones — ONLY change .name, never remove or reparent ───────
-    exportScene.traverse((obj) => {
-      if (!obj.isBone) return;
-      for (const [mixamoName, entry] of Object.entries(boneMapping)) {
-        if (entry.sourceName === obj.name && entry.status !== 'unmapped') {
-          obj.name = mixamoName;
-          break;
-        }
-      }
-    });
-
-    // ── 7. Attach vtube metadata ────────────────────────────────────────────
+    // ── 6. Attach vtubeRig + face metadata — original bone names are preserved ─
     exportScene.userData = {
       ...exportScene.userData,
+      vtubeRig: { version: 1, bones: boneRig },
       vtubeFaceMode: faceSetup.mode,
       ...(faceSetup.mode === 'blendshapes' ? { vtubeFaceMap: faceSetup.blendshapeMap } : {}),
       ...(faceSetup.mode === 'mesh' && faceSetup.faceMeshId
@@ -97,7 +86,7 @@ export function exportForVtube({ char, boneMapping, faceSetup }) {
         : {}),
     };
 
-    // ── 8. Export, then 9. self-verify before resolving ─────────────────────
+    // ── 7. Export, then 8. self-verify before resolving ─────────────────────
     const exporter = new GLTFExporter();
     exporter.parse(
       exportScene,

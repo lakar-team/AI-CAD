@@ -1,9 +1,9 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { MIXAMO_JOINTS, ARKIT_BLENDSHAPES } from '../character/mixamoSpec.js';
+import { ARKIT_BLENDSHAPES } from '../character/mixamoSpec.js';
 import {
-  autoDetectMapping, detectPoseType, makeArmHorizontal,
+  buildBoneRig, detectPoseType, makeArmHorizontal,
   processGltf, distPointToRay,
 } from '../character/boneDetection.js';
 import { exportForVtube as exportForVtubeUtil } from '../character/exporter.js';
@@ -12,36 +12,22 @@ export function useCharacterEngine() {
   const [characters, setCharacters] = useState([]);
   const [selectedCharId, setSelectedCharId] = useState(null);
   const [selectedBoneId, setSelectedBoneId] = useState(null);
+  const [selectedBoneIds, setSelectedBoneIds] = useState(new Set());
   const [activeTool, setActiveTool] = useState('select');
 
   const [charPrepTool, setCharPrepTool] = useState(null);
   const [boneMapping, setBoneMapping] = useState({});
-  const [selectedMixamoJoint, setSelectedMixamoJoint] = useState(null);
   const [prepState, setPrepState] = useState({
     poseType: null, scaleFactor: 1, grounded: false, facingFixed: false,
   });
   const [faceSetup, setFaceSetup] = useState({
     mode: 'off', blendshapeMap: {}, faceMeshId: null,
   });
-  const [isAiMappingBones, setIsAiMappingBones] = useState(false);
 
-  // Auto-map when both sides selected in mapbones mode
-  useEffect(() => {
-    if (charPrepTool !== 'mapbones') return;
-    if (!selectedBoneId || !selectedMixamoJoint) return;
-    setCharacters((prev) => {
-      const char = prev.find((c) => c.id === selectedCharId);
-      const bone = char?.bones.find((b) => b.id === selectedBoneId);
-      if (!bone) return prev;
-      setBoneMapping((m) => ({
-        ...m,
-        [selectedMixamoJoint]: { sourceName: bone.name, status: 'auto' },
-      }));
-      setSelectedBoneId(null);
-      setSelectedMixamoJoint(null);
-      return prev;
-    });
-  }, [charPrepTool, selectedBoneId, selectedMixamoJoint, selectedCharId]);
+  const _clearBoneSelection = () => {
+    setSelectedBoneId(null);
+    setSelectedBoneIds(new Set());
+  };
 
   const importGLB = useCallback(async (file) => {
     const url = URL.createObjectURL(file);
@@ -53,13 +39,14 @@ export function useCharacterEngine() {
       URL.revokeObjectURL(url);
     }
     const charData = processGltf(gltf, file.name);
+    const box = new THREE.Box3().setFromObject(charData.scene);
+    charData.baseHeight = Math.max(box.max.y - box.min.y, 0.01);
     setCharacters([charData]);
     setSelectedCharId(charData.id);
-    setSelectedBoneId(null);
-    setSelectedMixamoJoint(null);
-    const autoMap = autoDetectMapping(charData.bones);
-    setBoneMapping(autoMap);
-    const poseType = detectPoseType(charData.bones, autoMap);
+    _clearBoneSelection();
+    const rig = buildBoneRig(charData.bones);
+    setBoneMapping(rig);
+    const poseType = detectPoseType(charData.bones, rig);
     setPrepState({ poseType, scaleFactor: 1, grounded: false, facingFixed: false });
     setFaceSetup({ mode: 'off', blendshapeMap: {}, faceMeshId: null });
   }, []);
@@ -68,13 +55,14 @@ export function useCharacterEngine() {
     const loader = new GLTFLoader();
     const gltf = await loader.loadAsync(url);
     const charData = processGltf(gltf, name);
+    const box = new THREE.Box3().setFromObject(charData.scene);
+    charData.baseHeight = Math.max(box.max.y - box.min.y, 0.01);
     setCharacters([charData]);
     setSelectedCharId(charData.id);
-    setSelectedBoneId(null);
-    setSelectedMixamoJoint(null);
-    const autoMap = autoDetectMapping(charData.bones);
-    setBoneMapping(autoMap);
-    const poseType = detectPoseType(charData.bones, autoMap);
+    _clearBoneSelection();
+    const rig = buildBoneRig(charData.bones);
+    setBoneMapping(rig);
+    const poseType = detectPoseType(charData.bones, rig);
     setPrepState({ poseType, scaleFactor: 1, grounded: false, facingFixed: false });
     setFaceSetup({ mode: 'off', blendshapeMap: {}, faceMeshId: null });
   }, []);
@@ -82,7 +70,7 @@ export function useCharacterEngine() {
   const removeCharacter = useCallback((id) => {
     setCharacters((prev) => prev.filter((c) => c.id !== id));
     setSelectedCharId((prev) => (prev === id ? null : prev));
-    setSelectedBoneId(null);
+    _clearBoneSelection();
     setBoneMapping({});
   }, []);
 
@@ -118,13 +106,56 @@ export function useCharacterEngine() {
       const d = distPointToRay(ray.origin, ray.dir, [tmp.x, tmp.y, tmp.z]);
       if (d < closestDist) { closestDist = d; closest = bone; }
     }
-    if (charPrepTool === 'mapbones') {
-      // Toggle in mapbones — empty-space clicks may hit the ref skeleton, so only act on bone hits
-      if (closest) setSelectedBoneId((prev) => prev === closest.id ? null : closest.id);
-    } else {
-      setSelectedBoneId(closest ? closest.id : null);
-    }
-  }, [selectedCharId, charPrepTool]);
+    setSelectedBoneId(closest ? closest.id : null);
+    setSelectedBoneIds(closest ? new Set([closest.id]) : new Set());
+  }, [selectedCharId]);
+
+  const toggleBoneId = useCallback((boneId) => {
+    setSelectedBoneIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(boneId)) {
+        next.delete(boneId);
+        setSelectedBoneId(next.size > 0 ? [...next][next.size - 1] : null);
+      } else {
+        next.add(boneId);
+        setSelectedBoneId(boneId);
+      }
+      return next;
+    });
+  }, []);
+
+  const selectBoneRange = useCallback((fromId, toId) => {
+    setCharacters((prev) => {
+      const char = prev.find((c) => c.id === selectedCharId);
+      if (!char) return prev;
+      // Collect ancestors of a bone (inclusive)
+      const ancestors = (boneId) => {
+        const path = [];
+        let cur = char.bones.find((b) => b.id === boneId);
+        while (cur) {
+          path.push(cur.id);
+          cur = cur.parentName ? char.bones.find((b) => b.name === cur.parentName) : null;
+        }
+        return path;
+      };
+      const pathA = ancestors(fromId);
+      const pathB = ancestors(toId);
+      // Find common ancestor
+      const setA = new Set(pathA);
+      const common = pathB.find((id) => setA.has(id));
+      if (!common) {
+        // No common ancestor — just select both
+        setSelectedBoneIds(new Set([fromId, toId]));
+        return prev;
+      }
+      // Select fromId up to common, toId up to common (path between them)
+      const sliceA = pathA.slice(0, pathA.indexOf(common) + 1);
+      const sliceB = pathB.slice(0, pathB.indexOf(common));
+      setSelectedBoneIds(new Set([...sliceA, ...sliceB]));
+      setSelectedBoneId(toId);
+      return prev;
+    });
+  }, [selectedCharId]);
 
   const addChildBone = useCallback(() => {
     setCharacters((prev) => {
@@ -145,77 +176,47 @@ export function useCharacterEngine() {
       };
       const updatedChar = { ...char, bones: [...char.bones, newBoneData] };
       setSelectedBoneId(newBone.uuid);
+      setSelectedBoneIds(new Set([newBone.uuid]));
       return prev.map((c) => (c.id === selectedCharId ? updatedChar : c));
     });
   }, [selectedCharId, selectedBoneId]);
 
-  const confirmBoneMapping = useCallback((mixamoName) => {
+  const setBoneRole = useCallback((boneName, role) => {
     setBoneMapping((m) => ({
       ...m,
-      [mixamoName]: { ...m[mixamoName], status: 'confirmed' },
+      [boneName]: { ...(m[boneName] || {}), role },
     }));
   }, []);
 
-  const confirmAllMappings = useCallback(() => {
+  const setBoneRoleMulti = useCallback((boneNames, role) => {
     setBoneMapping((m) => {
-      const updated = {};
-      for (const [k, v] of Object.entries(m)) {
-        updated[k] = v.sourceName ? { ...v, status: 'confirmed' } : v;
+      const updated = { ...m };
+      for (const name of boneNames) {
+        updated[name] = { ...(updated[name] || {}), role };
       }
       return updated;
     });
   }, []);
 
-  const clearBoneMappingEntry = useCallback((mixamoName) => {
-    setBoneMapping((m) => ({ ...m, [mixamoName]: { sourceName: null, status: 'unmapped' } }));
+  const setBoneSpring = useCallback((boneName, params) => {
+    setBoneMapping((m) => ({
+      ...m,
+      [boneName]: { ...(m[boneName] || { role: 'spring' }), ...params },
+    }));
   }, []);
-
-  const setBoneMappingEntry = useCallback((mixamoName, sourceName) => {
-    setBoneMapping((m) => ({ ...m, [mixamoName]: { sourceName, status: 'auto' } }));
-  }, []);
-
-  const aiMapBones = useCallback(async (aiConfig) => {
-    const char = characters.find((c) => c.id === selectedCharId);
-    if (!char) return;
-    setIsAiMappingBones(true);
-    try {
-      const unmapped = MIXAMO_JOINTS.filter((j) => !boneMapping[j]?.sourceName);
-      const usedSources = new Set(
-        Object.values(boneMapping).filter((e) => e.sourceName).map((e) => e.sourceName),
-      );
-      const available = char.bones.map((b) => b.name).filter((n) => !usedSources.has(n));
-      if (!unmapped.length || !available.length) return;
-      const { callAIBoneMapping } = await import('../services/aiService.js');
-      const result = await callAIBoneMapping(aiConfig, unmapped, available);
-      setBoneMapping((m) => {
-        const updated = { ...m };
-        for (const [mixamoName, sourceName] of Object.entries(result)) {
-          if (MIXAMO_JOINTS.includes(mixamoName) && sourceName && typeof sourceName === 'string') {
-            if (!updated[mixamoName]?.sourceName) {
-              updated[mixamoName] = { sourceName, status: 'auto' };
-            }
-          }
-        }
-        return updated;
-      });
-    } catch (err) {
-      alert(`AI bone mapping failed: ${err.message}`);
-    } finally {
-      setIsAiMappingBones(false);
-    }
-  }, [characters, selectedCharId, boneMapping]);
 
   const autoScale = useCallback((targetHeightCm = 175) => {
     setCharacters((prev) => {
       const char = prev.find((c) => c.id === selectedCharId);
       if (!char) return prev;
-      const box = new THREE.Box3().setFromObject(char.scene);
-      const height = box.max.y - box.min.y;
-      if (height < 1e-6) return prev;
-      const scaleFactor = (targetHeightCm / 100) / height;
+      const baseH = char.baseHeight || (() => {
+        const box = new THREE.Box3().setFromObject(char.scene);
+        return Math.max(box.max.y - box.min.y, 0.01);
+      })();
+      const scaleFactor = (targetHeightCm / 100) / baseH;
       char.scene.scale.setScalar(scaleFactor);
       char.scene.updateMatrixWorld(true);
-      setPrepState((s) => ({ ...s, scaleFactor }));
+      setPrepState((s) => ({ ...s, scaleFactor, grounded: false }));
       return [...prev];
     });
   }, [selectedCharId]);
@@ -247,13 +248,16 @@ export function useCharacterEngine() {
     setCharacters((prev) => {
       const char = prev.find((c) => c.id === selectedCharId);
       if (!char) return prev;
-      const leftArmName = boneMapping['mixamorigLeftArm']?.sourceName;
-      const rightArmName = boneMapping['mixamorigRightArm']?.sourceName;
-      const leftArmData = leftArmName ? char.bones.find((b) => b.name === leftArmName) : null;
-      const rightArmData = rightArmName ? char.bones.find((b) => b.name === rightArmName) : null;
+      const leftArmEntry = Object.entries(boneMapping).find(
+        ([, v]) => v.role === 'driven' && v.jointFrom === 'shL' && v.jointTo === 'elL',
+      );
+      const rightArmEntry = Object.entries(boneMapping).find(
+        ([, v]) => v.role === 'driven' && v.jointFrom === 'shR' && v.jointTo === 'elR',
+      );
+      const leftArmData = leftArmEntry ? char.bones.find((b) => b.name === leftArmEntry[0]) : null;
+      const rightArmData = rightArmEntry ? char.bones.find((b) => b.name === rightArmEntry[0]) : null;
       if (leftArmData) makeArmHorizontal(leftArmData, -1);
       if (rightArmData) makeArmHorizontal(rightArmData, 1);
-      // Recalculate bind pose inverses so skinning remains correct after arm rotation
       char.scene.traverse((obj) => {
         if (obj.isSkinnedMesh && obj.skeleton) obj.skeleton.calculateInverses();
       });
@@ -296,41 +300,11 @@ export function useCharacterEngine() {
     setFaceSetup((s) => ({ ...s, blendshapeMap: { ...detected, ...s.blendshapeMap } }));
   }, [characters, selectedCharId]);
 
-  const swapLeftRight = useCallback(() => {
-    setBoneMapping((m) => {
-      const updated = { ...m };
-      for (const joint of MIXAMO_JOINTS) {
-        if (!joint.includes('Left')) continue;
-        const rightJoint = joint.replace('Left', 'Right');
-        if (!MIXAMO_JOINTS.includes(rightJoint)) continue;
-        const leftEntry = { ...(updated[joint] || { sourceName: null, status: 'unmapped' }) };
-        const rightEntry = { ...(updated[rightJoint] || { sourceName: null, status: 'unmapped' }) };
-        updated[joint] = rightEntry;
-        updated[rightJoint] = leftEntry;
-      }
-      return updated;
-    });
-    setFaceSetup((s) => {
-      const oldMap = s.blendshapeMap;
-      const newMap = { ...oldMap };
-      for (const arkitName of ARKIT_BLENDSHAPES) {
-        if (!arkitName.includes('Left')) continue;
-        const rightName = arkitName.replace('Left', 'Right');
-        if (!ARKIT_BLENDSHAPES.includes(rightName)) continue;
-        const leftVal = oldMap[arkitName] ?? null;
-        const rightVal = oldMap[rightName] ?? null;
-        if (rightVal) newMap[arkitName] = rightVal; else delete newMap[arkitName];
-        if (leftVal) newMap[rightName] = leftVal; else delete newMap[rightName];
-      }
-      return { ...s, blendshapeMap: newMap };
-    });
-  }, []);
-
   const exportForVtube = useCallback(async () => {
     const char = characters.find((c) => c.id === selectedCharId);
     if (!char) return;
     try {
-      const buffer = await exportForVtubeUtil({ char, boneMapping, faceSetup });
+      const buffer = await exportForVtubeUtil({ char, boneRig: boneMapping, faceSetup });
       const blob = new Blob([buffer], { type: 'application/octet-stream' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -347,16 +321,20 @@ export function useCharacterEngine() {
 
   const selectedChar = characters.find((c) => c.id === selectedCharId) || null;
   const selectedBone = selectedChar?.bones.find((b) => b.id === selectedBoneId) || null;
-  const mappingStats = {
-    total: MIXAMO_JOINTS.length,
-    mapped: Object.values(boneMapping).filter((e) => e.sourceName).length,
-    confirmed: Object.values(boneMapping).filter((e) => e.status === 'confirmed').length,
-  };
+  const rigStats = (() => {
+    const counts = { driven: 0, spring: 0, locked: 0 };
+    for (const entry of Object.values(boneMapping)) {
+      const r = entry.role || 'locked';
+      counts[r] = (counts[r] || 0) + 1;
+    }
+    return counts;
+  })();
 
   return {
     characters,
     selectedCharId,
     selectedBoneId,
+    selectedBoneIds,
     activeTool,
     setActiveTool,
     importGLB,
@@ -368,20 +346,17 @@ export function useCharacterEngine() {
     selectCharacter: setSelectedCharId,
     selectBone: setSelectedBoneId,
     setSelectedBoneId,
+    toggleBoneId,
+    selectBoneRange,
     selectedChar,
     selectedBone,
     charPrepTool,
     setCharPrepTool,
     boneMapping,
-    selectedMixamoJoint,
-    setSelectedMixamoJoint,
-    confirmBoneMapping,
-    confirmAllMappings,
-    clearBoneMappingEntry,
-    setBoneMappingEntry,
-    aiMapBones,
-    isAiMappingBones,
-    mappingStats,
+    setBoneRole,
+    setBoneRoleMulti,
+    setBoneSpring,
+    rigStats,
     prepState,
     faceSetup,
     autoScale,
@@ -392,7 +367,6 @@ export function useCharacterEngine() {
     setBlendshapeMap,
     setFaceMesh,
     autoDetectBlendshapes,
-    swapLeftRight,
     exportForVtube,
   };
 }
