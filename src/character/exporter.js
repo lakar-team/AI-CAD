@@ -23,8 +23,17 @@ export function exportForVtube({ char, boneRig, faceSetup }) {
       if (obj.isSkinnedMesh) origSkinnedMeshes.push(obj);
     });
 
-    // ── 2. Deep-clone ───────────────────────────────────────────────────────
-    const exportScene = char.scene.clone(true);
+    // ── 2. Deep-clone — wrap in THREE.Scene so GLTFExporter's
+    //    `instanceof Scene` check passes. GLTFLoader returns a THREE.Group,
+    //    which fails that check and routes to processObjectsAsync (AuxScene
+    //    with empty userData). Only processSceneAsync calls serializeUserData
+    //    on the root, which is what writes userData → scenes[0].extras.
+    const clonedRoot = char.scene.clone(true);
+    const exportScene = new THREE.Scene();
+    exportScene.position.copy(clonedRoot.position);
+    exportScene.quaternion.copy(clonedRoot.quaternion);
+    exportScene.scale.copy(clonedRoot.scale);
+    for (const child of [...clonedRoot.children]) exportScene.add(child);
 
     // ── 3. Bake root transform BEFORE rebinding ─────────────────────────────
     // autoScale / groundModel / fixFacing leave transforms on char.scene root.
