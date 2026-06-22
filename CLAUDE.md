@@ -68,7 +68,7 @@ without anyone needing to remember to run a sync separately. See
 
 <!-- wiki-chain
 id: ai-cad-claude
-status: Exporter fixed — stale bind-pose bug resolved, vtubeRig recipe now written to the canonical scenes[0].extras location, verified via real browser export/import test. autoScale/groundModel compounding bug also fixed.
-updated: 2026-06-21
-links: [ai-cad-overview, vtube-claude, vtuberig-contract, exporter-pipeline, bone-detection, scale-ground-fix]
+status: Exporter pipeline stable — rotation-shatter fixed (fold-into-children replaces geometry-baking), vtubeRig in scenes[0].extras confirmed, all 49 joints at machine precision. See shatter-bug and exporter-pipeline notes.
+updated: 2026-06-22
+links: [ai-cad-overview, vtube-claude, vtuberig-contract, exporter-pipeline, bone-detection, scale-ground-fix, shatter-bug]
 -->
