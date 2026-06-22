@@ -35,30 +35,39 @@ export function exportForVtube({ char, boneRig, faceSetup }) {
     exportScene.scale.copy(clonedRoot.scale);
     for (const child of [...clonedRoot.children]) exportScene.add(child);
 
-    // ── 3. Bake root transform BEFORE rebinding ─────────────────────────────
+    // ── 3. Fold root transform into direct children, reset root to identity ──
     // autoScale / groundModel / fixFacing leave transforms on char.scene root.
-    // Baking them into geometry vertices BEFORE skeleton rebinding keeps the
-    // bone inverse matrices consistent with the identity-root geometry.
+    // We need the exported GLB to have an identity root so vtube doesn't see
+    // a stale scale/rotation on the scene node.
+    //
+    // We do NOT bake into geometry vertices. Baking rootMat into vertices is
+    // only correct when rootMat commutes through intermediate node transforms
+    // (true for uniform scale, false for rotation).  Soldier.glb has a
+    // "Character" node (scale=0.01, -90°X) between the root and the meshes:
+    //   CharacterMat × Ry(π) ≠ Ry(π) × CharacterMat
+    // so geometry-baking with a rotation produces vertices in the wrong frame
+    // relative to the skeleton, causing the shatter.
+    //
+    // The correct approach: fold rootMat into each direct child's local matrix
+    // (child.applyMatrix4 premultiplies child.localMat by rootMat).  This
+    // leaves all world matrices unchanged — bones and mesh stay consistent.
     exportScene.updateMatrix();
     const isIdentity =
       Math.abs(exportScene.scale.x - 1) < 1e-6 &&
       Math.abs(exportScene.scale.y - 1) < 1e-6 &&
       Math.abs(exportScene.scale.z - 1) < 1e-6 &&
-      Math.abs(exportScene.rotation.x) < 1e-6 &&
-      Math.abs(exportScene.rotation.y) < 1e-6 &&
-      Math.abs(exportScene.rotation.z) < 1e-6 &&
+      Math.abs(exportScene.quaternion.x) < 1e-6 &&
+      Math.abs(exportScene.quaternion.y) < 1e-6 &&
+      Math.abs(exportScene.quaternion.z) < 1e-6 &&
       exportScene.position.lengthSq() < 1e-10;
 
     if (!isIdentity) {
       const rootMat = exportScene.matrix.clone();
-      exportScene.traverse((obj) => {
-        if (obj.isMesh && obj.geometry) {
-          obj.geometry = obj.geometry.clone();
-          obj.geometry.applyMatrix4(rootMat);
-        }
-      });
+      for (const child of [...exportScene.children]) {
+        child.applyMatrix4(rootMat);
+      }
       exportScene.position.set(0, 0, 0);
-      exportScene.rotation.set(0, 0, 0);
+      exportScene.quaternion.set(0, 0, 0, 1);
       exportScene.scale.set(1, 1, 1);
     }
 

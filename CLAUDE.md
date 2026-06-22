@@ -52,17 +52,23 @@ Conventions: Y-up, units = meters, ids are short prefixed strings
 A knowledge wiki lives at `G:\My Drive\AI Platforms\Wiki` (markdown notes in
 `vault/`, cross-linked with `[[note-id]]` syntax, visualized in `index.html`).
 It documents *why* things are built the way they are and the bug history behind
-current design choices — this file documents *what exists*, the wiki documents
-*why* and *what went wrong before*.
+current design choices — this file documents *what's true right now*, the wiki
+documents *why* and *what went wrong before*.
 
 **Before** starting any non-trivial task here (architecture change, bug fix,
 export/driving logic, anything touching the character-mode pipeline): check
 `vault/ai-cad/` and `vault/shared/` for relevant existing notes first.
 
 **After** resolving a non-trivial bug or architecture decision: add or update a
-note in `vault/ai-cad/`, `vault/shared/`, or `vault/issues/` as appropriate, and
-keep `index.html`'s embedded data block in sync (run `node generate-graph.mjs`
-in the Wiki folder, or hand-edit the block between the `WIKI-DATA-START`/`END`
-markers if you can't run it). Don't let architecture knowledge live only in a
-chat transcript or commit message — the wiki is what the next session (human
-or AI) actually reads first.
+note in `vault/ai-cad/`, `vault/shared/`, or `vault/issues/` as appropriate, AND
+update the `status`/`updated`/`links` fields in the `wiki-chain` block at the
+bottom of this file — that block is what keeps the wiki's chain view current
+without anyone needing to remember to run a sync separately. See
+[[claude-md-chain-architecture]] for why the block is structured this way.
+
+<!-- wiki-chain
+id: ai-cad-claude
+status: Exporter fixed — stale bind-pose bug resolved, vtubeRig recipe now written to the canonical scenes[0].extras location, verified via real browser export/import test. autoScale/groundModel compounding bug also fixed.
+updated: 2026-06-21
+links: [ai-cad-overview, vtube-claude, vtuberig-contract, exporter-pipeline, bone-detection, scale-ground-fix]
+-->
