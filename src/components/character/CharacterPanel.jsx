@@ -75,13 +75,14 @@ function SectionLabel({ children }) {
   );
 }
 
-function PrepBtn({ children, onClick, disabled, variant }) {
+function PrepBtn({ children, onClick, disabled, variant, title }) {
   const bg = variant === 'primary' ? 'var(--sk-accent)' : variant === 'danger' ? '#c0392b' : 'var(--sk-tray-header)';
   const col = (variant === 'primary' || variant === 'danger') ? '#fff' : 'var(--sk-text)';
   return (
     <button
       onClick={onClick}
       disabled={disabled}
+      title={title}
       style={{
         display: 'flex', alignItems: 'center', gap: 4,
         padding: '4px 8px', fontSize: 11, border: '1px solid var(--sk-tray-border)',
