@@ -247,7 +247,14 @@ const MIXAMO_TO_MEDIAPIPE = {
   mixamorigRightToeBase:  { jointFrom: 'toeR',   jointTo: null },
 };
 
-function computeRestDirLength(boneObj) {
+export function flipJointSide(joint) {
+  if (!joint) return joint;
+  if (joint.endsWith('L')) return joint.slice(0, -1) + 'R';
+  if (joint.endsWith('R')) return joint.slice(0, -1) + 'L';
+  return joint;
+}
+
+export function computeRestDirLength(boneObj) {
   const childBone = boneObj.children.find((c) => c.isBone);
   if (!childBone) return { restDir: null, length: null };
   const boneWPos = new THREE.Vector3();

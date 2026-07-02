@@ -229,7 +229,7 @@ const ROLE_COLORS = { driven: '#22cc55', spring: '#4488ff', locked: '#888888' };
 function BoneRigPanel({ characterEngine }) {
   const {
     selectedBone, boneMapping, setBoneRole, setBoneRoleMulti, setBoneSpring,
-    selectedBoneIds, characters, selectedCharId,
+    selectedBoneIds, characters, selectedCharId, swapBoneSides,
   } = characterEngine;
 
   const char = characters.find((c) => c.id === selectedCharId);
@@ -247,14 +247,28 @@ function BoneRigPanel({ characterEngine }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      {/* Stats */}
+      {/* Stats + Swap L/R */}
       <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--sk-tray-border)', flexShrink: 0 }}>
-        <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'var(--sk-text-muted)' }}>
-          {['driven', 'spring', 'locked'].map((r) => (
-            <span key={r}>
-              <span style={{ color: ROLE_COLORS[r], fontWeight: 700 }}>{stats[r]}</span> {r}
-            </span>
-          ))}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'var(--sk-text-muted)' }}>
+            {['driven', 'spring', 'locked'].map((r) => (
+              <span key={r}>
+                <span style={{ color: ROLE_COLORS[r], fontWeight: 700 }}>{stats[r]}</span> {r}
+              </span>
+            ))}
+          </div>
+          <PrepBtn
+            onClick={() => {
+              const names = multiCount > 0
+                ? (char?.bones.filter((b) => selectedBoneIds.has(b.id)).map((b) => b.name) || [])
+                : [];
+              swapBoneSides(names);
+            }}
+            disabled={!char}
+            title={multiCount > 0 ? `Swap L/R on ${multiCount} selected bones` : 'Swap L/R on all driven bones'}
+          >
+            <FlipHorizontal size={11} /> Swap L/R
+          </PrepBtn>
         </div>
       </div>
 

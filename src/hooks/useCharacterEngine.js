@@ -4,7 +4,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { ARKIT_BLENDSHAPES } from '../character/mixamoSpec.js';
 import {
   buildBoneRig, detectPoseType, makeArmHorizontal,
-  processGltf, distPointToRay,
+  processGltf, distPointToRay, computeRestDirLength, flipJointSide,
 } from '../character/boneDetection.js';
 import { exportForVtube as exportForVtubeUtil } from '../character/exporter.js';
 
@@ -300,6 +300,39 @@ export function useCharacterEngine() {
     setFaceSetup((s) => ({ ...s, blendshapeMap: { ...detected, ...s.blendshapeMap } }));
   }, [characters, selectedCharId]);
 
+  const swapBoneSides = useCallback((boneNames) => {
+    const char = characters.find((c) => c.id === selectedCharId);
+    if (!char) return;
+    const boneByName = new Map(char.bones.map((b) => [b.name, b]));
+    setBoneMapping((m) => {
+      const targets = (boneNames && boneNames.length > 0)
+        ? boneNames
+        : Object.entries(m).filter(([, v]) => v.role === 'driven').map(([k]) => k);
+      const updated = { ...m };
+      for (const name of targets) {
+        const entry = m[name];
+        if (!entry || entry.role !== 'driven') continue;
+        const boneData = boneByName.get(name);
+        let { restDir, length } = entry;
+        if (boneData?.object) {
+          const rd = computeRestDirLength(boneData.object);
+          if (rd.restDir !== null) restDir = rd.restDir;
+          if (rd.length !== null) length = rd.length;
+        }
+        const next = {
+          ...entry,
+          jointFrom: flipJointSide(entry.jointFrom),
+          jointTo: flipJointSide(entry.jointTo),
+          restDir,
+          length,
+        };
+        if ('side' in entry) next.side = flipJointSide(entry.side);
+        updated[name] = next;
+      }
+      return updated;
+    });
+  }, [selectedCharId, characters]);
+
   const exportForVtube = useCallback(async () => {
     const char = characters.find((c) => c.id === selectedCharId);
     if (!char) return;
@@ -367,6 +400,7 @@ export function useCharacterEngine() {
     setBlendshapeMap,
     setFaceMesh,
     autoDetectBlendshapes,
+    swapBoneSides,
     exportForVtube,
   };
 }
