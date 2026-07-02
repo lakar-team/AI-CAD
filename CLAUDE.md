@@ -68,7 +68,7 @@ without anyone needing to remember to run a sync separately. See
 
 <!-- wiki-chain
 id: ai-cad-claude
-status: Exporter pipeline stable — rotation-shatter fixed (fold-into-children replaces geometry-baking), vtubeRig in scenes[0].extras confirmed, all 49 joints at machine precision. See shatter-bug and exporter-pipeline notes.
-updated: 2026-06-22
+status: Exporter pipeline stable (rotation-shatter fixed). Swap L/R button added to bone rig editor — corrects wrong auto-detected L/R labels on any driven bone via flipJointSide(). Verified live in browser.
+updated: 2026-07-03
 links: [ai-cad-overview, vtube-claude, vtuberig-contract, exporter-pipeline, bone-detection, scale-ground-fix, shatter-bug]
 -->
