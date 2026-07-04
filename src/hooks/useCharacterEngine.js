@@ -7,6 +7,7 @@ import {
   processGltf, distPointToRay, computeRestDirLength, flipJointSide,
 } from '../character/boneDetection.js';
 import { exportForVtube as exportForVtubeUtil } from '../character/exporter.js';
+import { mirrorCharacterX } from '../character/mirror.js';
 
 export function useCharacterEngine() {
   const [characters, setCharacters] = useState([]);
@@ -18,7 +19,7 @@ export function useCharacterEngine() {
   const [charPrepTool, setCharPrepTool] = useState(null);
   const [boneMapping, setBoneMapping] = useState({});
   const [prepState, setPrepState] = useState({
-    poseType: null, scaleFactor: 1, grounded: false, facingFixed: false,
+    poseType: null, scaleFactor: 1, grounded: false, facingFixed: false, mirrored: false,
   });
   const [faceSetup, setFaceSetup] = useState({
     mode: 'off', blendshapeMap: {}, faceMeshId: null,
@@ -47,7 +48,7 @@ export function useCharacterEngine() {
     const rig = buildBoneRig(charData.bones);
     setBoneMapping(rig);
     const poseType = detectPoseType(charData.bones, rig);
-    setPrepState({ poseType, scaleFactor: 1, grounded: false, facingFixed: false });
+    setPrepState({ poseType, scaleFactor: 1, grounded: false, facingFixed: false, mirrored: false });
     setFaceSetup({ mode: 'off', blendshapeMap: {}, faceMeshId: null });
   }, []);
 
@@ -63,7 +64,7 @@ export function useCharacterEngine() {
     const rig = buildBoneRig(charData.bones);
     setBoneMapping(rig);
     const poseType = detectPoseType(charData.bones, rig);
-    setPrepState({ poseType, scaleFactor: 1, grounded: false, facingFixed: false });
+    setPrepState({ poseType, scaleFactor: 1, grounded: false, facingFixed: false, mirrored: false });
     setFaceSetup({ mode: 'off', blendshapeMap: {}, faceMeshId: null });
   }, []);
 
@@ -334,6 +335,15 @@ export function useCharacterEngine() {
     });
   }, [selectedCharId, characters]);
 
+  const mirrorCharacter = useCallback(() => {
+    const char = characters.find((c) => c.id === selectedCharId);
+    if (!char) return;
+    mirrorCharacterX(char.scene);
+    swapBoneSides([]); // flips jointFrom/jointTo + lmHand, recomputes restDir/length from the mirrored bones
+    setCharacters((prev) => [...prev]);
+    setPrepState((s) => ({ ...s, mirrored: !s.mirrored }));
+  }, [characters, selectedCharId, swapBoneSides]);
+
   const exportForVtube = useCallback(async () => {
     const char = characters.find((c) => c.id === selectedCharId);
     if (!char) return;
@@ -397,6 +407,7 @@ export function useCharacterEngine() {
     groundModel,
     fixFacing,
     normalizeTpose,
+    mirrorCharacter,
     setFaceMode,
     setBlendshapeMap,
     setFaceMesh,

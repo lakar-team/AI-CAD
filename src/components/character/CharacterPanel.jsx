@@ -2,7 +2,7 @@ import { useState } from 'react';
 import * as THREE from 'three';
 import {
   ChevronRight, ChevronDown, Box, List, Info, Minus, Trash2,
-  Download, Ruler, FlipHorizontal, ArrowDown,
+  Download, Ruler, FlipHorizontal, FlipHorizontal2, ArrowDown,
 } from 'lucide-react';
 import { ARKIT_BLENDSHAPES } from '../../character/mixamoSpec.js';
 
@@ -363,7 +363,9 @@ function BoneRigPanel({ characterEngine }) {
 // ─── Prep & Scale Panel ───────────────────────────────────────────────────────
 
 function PrepPanel({ characterEngine }) {
-  const { prepState, autoScale, groundModel, fixFacing, normalizeTpose, selectedChar } = characterEngine;
+  const {
+    prepState, autoScale, groundModel, fixFacing, normalizeTpose, mirrorCharacter, selectedChar,
+  } = characterEngine;
   const [heightCm, setHeightCm] = useState(175);
   const hasChar = !!selectedChar;
 
@@ -378,6 +380,7 @@ function PrepPanel({ characterEngine }) {
       <Row label="Scale ×" value={prepState.scaleFactor.toFixed(3)} />
       <Row label="Grounded" value={prepState.grounded ? 'Yes' : 'No'} />
       <Row label="Facing" value={prepState.facingFixed ? 'Fixed (+Z)' : 'Original'} />
+      <Row label="Mirrored" value={prepState.mirrored ? 'Yes' : 'No'} />
 
       <SectionLabel>ACTIONS</SectionLabel>
 
@@ -411,6 +414,13 @@ function PrepPanel({ characterEngine }) {
         variant={prepState.poseType === 'apose' ? 'primary' : undefined}
       >
         Normalize to T-pose
+      </PrepBtn>
+      <PrepBtn
+        onClick={mirrorCharacter}
+        disabled={!hasChar}
+        title="Physically mirror the character geometry and skeleton, then swap joint labels to match. Use when the model's left/right sides are physically reversed."
+      >
+        <FlipHorizontal2 size={11} /> Mirror rig + mesh
       </PrepBtn>
     </div>
   );
