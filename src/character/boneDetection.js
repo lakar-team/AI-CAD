@@ -254,6 +254,27 @@ export function flipJointSide(joint) {
   return joint;
 }
 
+// MediaPipe hand-landmark index pairs (0-20) for palm + finger segments.
+// Keyed by the Mixamo joint name with the "mixamorig"/"Left"/"Right" prefix
+// stripped, e.g. mixamorigLeftHandThumb1 -> HandThumb1.
+const HAND_LM_PAIRS = {
+  Hand: [0, 9],
+  HandThumb1: [1, 2], HandThumb2: [2, 3], HandThumb3: [3, 4],
+  HandIndex1: [5, 6], HandIndex2: [6, 7], HandIndex3: [7, 8],
+  HandMiddle1: [9, 10], HandMiddle2: [10, 11], HandMiddle3: [11, 12],
+  HandRing1: [13, 14], HandRing2: [14, 15], HandRing3: [15, 16],
+  HandPinky1: [17, 18], HandPinky2: [18, 19], HandPinky3: [19, 20],
+};
+
+export function handLmFields(mixamoName) {
+  const side = mixamoName.includes('Left') ? 'L' : mixamoName.includes('Right') ? 'R' : null;
+  if (!side) return null;
+  const base = mixamoName.replace('mixamorig', '').replace(/^(Left|Right)/, '');
+  const lmPair = HAND_LM_PAIRS[base];
+  if (!lmPair) return null;
+  return { lmHand: side, lmPair };
+}
+
 export function computeRestDirLength(boneObj) {
   const childBone = boneObj.children.find((c) => c.isBone);
   if (!childBone) return { restDir: null, length: null };
@@ -284,7 +305,10 @@ export function buildBoneRig(bones) {
     if (mixamoName) {
       const mp = MIXAMO_TO_MEDIAPIPE[mixamoName] || { jointFrom: null, jointTo: null };
       const { restDir, length } = computeRestDirLength(bone.object);
-      boneRig[bone.name] = { role: 'driven', jointFrom: mp.jointFrom, jointTo: mp.jointTo, restDir, length };
+      const entry = { role: 'driven', jointFrom: mp.jointFrom, jointTo: mp.jointTo, restDir, length };
+      const hand = handLmFields(mixamoName);
+      if (hand) Object.assign(entry, hand);
+      boneRig[bone.name] = entry;
     } else {
       boneRig[bone.name] = { role: 'locked' };
     }

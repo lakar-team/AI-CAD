@@ -327,6 +327,7 @@ export function useCharacterEngine() {
           length,
         };
         if ('side' in entry) next.side = flipJointSide(entry.side);
+        if ('lmHand' in entry) next.lmHand = flipJointSide(entry.lmHand);
         updated[name] = next;
       }
       return updated;
