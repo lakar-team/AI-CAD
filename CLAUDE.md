@@ -68,7 +68,7 @@ without anyone needing to remember to run a sync separately. See
 
 <!-- wiki-chain
 id: ai-cad-claude
-status: Exporter pipeline stable (rotation-shatter fixed). Swap L/R button added to bone rig editor — corrects wrong auto-detected L/R labels on any driven bone via flipJointSide(). Verified live in browser.
-updated: 2026-07-03
-links: [ai-cad-overview, vtube-claude, vtuberig-contract, exporter-pipeline, bone-detection, scale-ground-fix, shatter-bug]
+status: Exporter pipeline stable (rotation-shatter fixed). Swap L/R relabels joints; new "Mirror rig + mesh" button (mirror.js) physically mirrors geometry+skeleton across world X=0 (proper-rotation quaternion reflection, no negative-scale node) then calls swapBoneSides to match. Finger bones now export explicit lmHand/lmPair (buildBoneRig), flipped correctly by both Swap L/R and Mirror. Verified headlessly (isometry, winding, double-mirror round-trip) and live in browser (real export + userData.vtubeRig inspection).
+updated: 2026-07-05
+links: [ai-cad-overview, vtube-claude, vtuberig-contract, exporter-pipeline, bone-detection, scale-ground-fix, shatter-bug, mirror-rig]
 -->
