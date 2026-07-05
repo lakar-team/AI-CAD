@@ -1,15 +1,17 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import * as THREE from 'three';
 import {
   ChevronRight, ChevronDown, Box, List, Info, Minus, Trash2,
   Download, Ruler, FlipHorizontal, FlipHorizontal2, ArrowDown,
 } from 'lucide-react';
 import { ARKIT_BLENDSHAPES } from '../../character/mixamoSpec.js';
+import CharacterWizard from './CharacterWizard.jsx';
 
 // ─── Shared primitives ────────────────────────────────────────────────────────
 
-function Panel({ title, icon: Icon, defaultOpen = true, children }) {
+function Panel({ title, icon: Icon, defaultOpen = true, forceOpen, children }) {
   const [open, setOpen] = useState(defaultOpen);
+  useEffect(() => { if (forceOpen) setOpen(true); }, [forceOpen]);
   return (
     <div className="sk-panel">
       <div className="sk-panel-header" onClick={() => setOpen((o) => !o)}>
@@ -75,7 +77,7 @@ function SectionLabel({ children }) {
   );
 }
 
-function PrepBtn({ children, onClick, disabled, variant, title }) {
+function PrepBtn({ children, onClick, disabled, variant, title, className }) {
   const bg = variant === 'primary' ? 'var(--sk-accent)' : variant === 'danger' ? '#c0392b' : 'var(--sk-tray-header)';
   const col = (variant === 'primary' || variant === 'danger') ? '#fff' : 'var(--sk-text)';
   return (
@@ -83,6 +85,7 @@ function PrepBtn({ children, onClick, disabled, variant, title }) {
       onClick={onClick}
       disabled={disabled}
       title={title}
+      className={className}
       style={{
         display: 'flex', alignItems: 'center', gap: 4,
         padding: '4px 8px', fontSize: 11, border: '1px solid var(--sk-tray-border)',
@@ -230,7 +233,7 @@ const ROLE_COLORS = { driven: '#22cc55', spring: '#4488ff', locked: '#888888' };
 function BoneRigPanel({ characterEngine }) {
   const {
     selectedBone, boneMapping, setBoneRole, setBoneRoleMulti, setBoneSpring,
-    selectedBoneIds, characters, selectedCharId, swapBoneSides,
+    selectedBoneIds, characters, selectedCharId, swapBoneSides, wizard,
   } = characterEngine;
 
   const char = characters.find((c) => c.id === selectedCharId);
@@ -247,7 +250,10 @@ function BoneRigPanel({ characterEngine }) {
   const role = entry?.role || 'locked';
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+    <div
+      className={wizard?.isHighlighted('bone-rig-panel') ? 'wizard-highlight' : ''}
+      style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}
+    >
       {/* Stats + Swap L/R */}
       <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--sk-tray-border)', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -267,6 +273,7 @@ function BoneRigPanel({ characterEngine }) {
             }}
             disabled={!char}
             title={multiCount > 0 ? `Swap L/R on ${multiCount} selected bones` : 'Swap L/R on all driven bones'}
+            className={wizard?.isHighlighted('swap-lr-btn') ? 'wizard-highlight' : ''}
           >
             <FlipHorizontal size={11} /> Swap L/R
           </PrepBtn>
@@ -364,7 +371,7 @@ function BoneRigPanel({ characterEngine }) {
 
 function PrepPanel({ characterEngine }) {
   const {
-    prepState, autoScale, groundModel, fixFacing, normalizeTpose, mirrorCharacter, selectedChar,
+    prepState, autoScale, groundModel, fixFacing, normalizeTpose, mirrorCharacter, selectedChar, wizard,
   } = characterEngine;
   const [heightCm, setHeightCm] = useState(175);
   const hasChar = !!selectedChar;
@@ -373,6 +380,10 @@ function PrepPanel({ characterEngine }) {
     : prepState.poseType === 'apose' ? 'A-pose detected'
     : prepState.poseType === 'other' ? 'Non-standard pose'
     : '—';
+
+  // Wizard step 3 gates the prep buttons in order: only the first unchecked
+  // (and any earlier, already-done) step's button is clickable.
+  const wizGated = (idx) => wizard.step === 3 && idx > wizard.prepUnlockedIndex;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -386,7 +397,12 @@ function PrepPanel({ characterEngine }) {
 
       {/* Auto-scale */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-        <PrepBtn variant="primary" onClick={() => autoScale(heightCm)} disabled={!hasChar}>
+        <PrepBtn
+          variant="primary"
+          onClick={() => { autoScale(heightCm); wizard.checkPrep('prepScale'); }}
+          disabled={!hasChar || wizGated(1)}
+          className={wizard.isHighlighted('autoscale-btn') ? 'wizard-highlight' : ''}
+        >
           <Ruler size={11} /> Auto-scale
         </PrepBtn>
         <input
@@ -402,16 +418,25 @@ function PrepPanel({ characterEngine }) {
         <span style={{ fontSize: 11, color: 'var(--sk-text-muted)' }}>cm</span>
       </div>
 
-      <PrepBtn onClick={groundModel} disabled={!hasChar}>
+      <PrepBtn
+        onClick={() => { groundModel(); wizard.checkPrep('prepGround'); }}
+        disabled={!hasChar || wizGated(2)}
+        className={wizard.isHighlighted('ground-btn') ? 'wizard-highlight' : ''}
+      >
         <ArrowDown size={11} /> Ground model (Y=0)
       </PrepBtn>
-      <PrepBtn onClick={fixFacing} disabled={!hasChar}>
+      <PrepBtn
+        onClick={fixFacing}
+        disabled={!hasChar || wizGated(3)}
+        className={wizard.isHighlighted('facing-btn') ? 'wizard-highlight' : ''}
+      >
         <FlipHorizontal size={11} /> Fix facing (rotate 180°)
       </PrepBtn>
       <PrepBtn
-        onClick={normalizeTpose}
-        disabled={!hasChar || !prepState.poseType || prepState.poseType === 'tpose'}
+        onClick={() => { normalizeTpose(); wizard.checkPrep('prepTpose'); }}
+        disabled={!hasChar || !prepState.poseType || prepState.poseType === 'tpose' || wizGated(0)}
         variant={prepState.poseType === 'apose' ? 'primary' : undefined}
+        className={wizard.isHighlighted('tpose-btn') ? 'wizard-highlight' : ''}
       >
         Normalize to T-pose
       </PrepBtn>
@@ -530,7 +555,7 @@ function FaceSetupPanel({ characterEngine }) {
 // ─── Export Panel ─────────────────────────────────────────────────────────────
 
 function ExportPanel({ characterEngine }) {
-  const { exportForVtube, selectedChar, rigStats } = characterEngine;
+  const { exportForVtube, selectedChar, rigStats, wizard } = characterEngine;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div style={{ fontSize: 11, color: 'var(--sk-text-muted)' }}>
@@ -541,8 +566,12 @@ function ExportPanel({ characterEngine }) {
       </div>
       <PrepBtn
         variant="primary"
-        onClick={exportForVtube}
+        onClick={async () => {
+          const ok = await exportForVtube();
+          if (ok) wizard.onExportSuccess();
+        }}
         disabled={!selectedChar}
+        className={wizard.isHighlighted('export-btn') ? 'wizard-highlight' : ''}
       >
         <Download size={11} /> Export for vtube (.glb)
       </PrepBtn>
@@ -576,17 +605,24 @@ export default function CharacterPanel({ characterEngine, aiConfig }) {
   const {
     characters, selectedCharId, selectedBoneId,
     selectCharacter, selectBone, selectedChar, selectedBone,
-    removeCharacter, setBoneTransform, charPrepTool,
+    removeCharacter, setBoneTransform, charPrepTool, wizard,
   } = characterEngine;
 
   // In rig-edit mode: show bone role editor (right side of the two-column layout)
   if (charPrepTool === 'mapbones') {
-    return <BoneRigWrapper characterEngine={characterEngine} />;
+    return (
+      <>
+        <CharacterWizard characterEngine={characterEngine} />
+        <BoneRigWrapper characterEngine={characterEngine} />
+      </>
+    );
   }
 
   // Normal character mode panels
   return (
     <>
+      <CharacterWizard characterEngine={characterEngine} />
+
       <Panel title="Scene Hierarchy" icon={List} defaultOpen>
         <SceneHierarchy
           characters={characters}
@@ -606,7 +642,7 @@ export default function CharacterPanel({ characterEngine, aiConfig }) {
         <MeshProperties selectedChar={selectedChar} />
       </Panel>
 
-      <Panel title="Prep & Scale" icon={Ruler} defaultOpen={false}>
+      <Panel title="Prep & Scale" icon={Ruler} defaultOpen={false} forceOpen={wizard.step === 3}>
         <PrepPanel characterEngine={characterEngine} />
       </Panel>
 
@@ -614,7 +650,7 @@ export default function CharacterPanel({ characterEngine, aiConfig }) {
         <FaceSetupPanel characterEngine={characterEngine} />
       </Panel>
 
-      <Panel title="Export for vtube" icon={Download} defaultOpen={false}>
+      <Panel title="Export for vtube" icon={Download} defaultOpen={false} forceOpen={wizard.step === 4}>
         <ExportPanel characterEngine={characterEngine} />
       </Panel>
     </>

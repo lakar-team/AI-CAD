@@ -123,7 +123,12 @@ export default function CharacterToolbar({
           <span style={{ color: '#4488ff', marginRight: 4 }}>●</span>spring&nbsp;
           <span style={{ color: '#888' }}>●</span>locked
         </div>
-        <ModelBoneList characterEngine={characterEngine} />
+        <div
+          className={characterEngine.wizard?.isHighlighted('bone-rig-list') ? 'wizard-highlight' : ''}
+          style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}
+        >
+          <ModelBoneList characterEngine={characterEngine} />
+        </div>
         <div style={{
           padding: '6px 10px', borderTop: '1px solid #2a2d2f', fontSize: 10, color: '#888', flexShrink: 0,
         }}>
@@ -149,6 +154,7 @@ export default function CharacterToolbar({
         const disabled = t.placeholder || (t.action === 'addbone' && !hasSelection);
         const tooltip = t.action === 'addbone' && !hasSelection ? 'Select a bone first' : t.label;
         const isActive = t.action === 'mapbones' ? charPrepTool === 'mapbones' : (!t.action && activeTool === t.id);
+        const isWizardHighlighted = t.action === 'mapbones' && characterEngine.wizard?.isHighlighted('edit-rig-btn');
 
         const handleClick = () => {
           if (disabled) return;
@@ -161,7 +167,7 @@ export default function CharacterToolbar({
         return (
           <button
             key={t.id}
-            className={`sk-tool-btn ${isActive ? 'active' : ''} ${disabled ? 'placeholder' : ''}`}
+            className={`sk-tool-btn ${isActive ? 'active' : ''} ${disabled ? 'placeholder' : ''} ${isWizardHighlighted ? 'wizard-highlight' : ''}`}
             title={tooltip}
             onClick={handleClick}
           >

@@ -748,3 +748,18 @@ body, html, #root {
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+/* ─── Setup wizard highlight (pulse glow on the target element) ──────────── */
+@keyframes wizard-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(26, 159, 220, 0.55); }
+  50% { box-shadow: 0 0 0 6px rgba(26, 159, 220, 0); }
+}
+
+.wizard-highlight {
+  position: relative;
+  z-index: 2;
+  outline: 2px solid var(--sk-accent);
+  outline-offset: 1px;
+  border-radius: 4px;
+  animation: wizard-pulse 1.4s ease-out infinite;
+}

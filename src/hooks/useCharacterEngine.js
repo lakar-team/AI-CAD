@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { ARKIT_BLENDSHAPES } from '../character/mixamoSpec.js';
@@ -25,9 +25,33 @@ export function useCharacterEngine() {
     mode: 'off', blendshapeMap: {}, faceMeshId: null,
   });
 
+  // ── Setup wizard ──────────────────────────────────────────────────────────
+  // step: 0 = hidden, 'welcome' = welcome card, 1-5 = guided steps
+  const [wizardStep, setWizardStep] = useState(0);
+  const [wizardDismissed, setWizardDismissed] = useState(() => {
+    try { return sessionStorage.getItem('aicad-wizard-dismissed') === '1'; } catch { return false; }
+  });
+  const [wizardChecklist, setWizardChecklist] = useState({
+    bonesGreenOk: false, bonesGreyOk: false,
+    lrChoice: null,
+    prepTpose: false, prepScale: false, prepGround: false, prepFacing: false,
+  });
+  const wizardDismissedRef = useRef(wizardDismissed);
+  useEffect(() => { wizardDismissedRef.current = wizardDismissed; }, [wizardDismissed]);
+
   const _clearBoneSelection = () => {
     setSelectedBoneId(null);
     setSelectedBoneIds(new Set());
+  };
+
+  const _wizardOnModelLoaded = () => {
+    if (wizardDismissedRef.current) return;
+    setWizardStep('welcome');
+    setWizardChecklist({
+      bonesGreenOk: false, bonesGreyOk: false,
+      lrChoice: null,
+      prepTpose: false, prepScale: false, prepGround: false, prepFacing: false,
+    });
   };
 
   const importGLB = useCallback(async (file) => {
@@ -50,6 +74,7 @@ export function useCharacterEngine() {
     const poseType = detectPoseType(charData.bones, rig);
     setPrepState({ poseType, scaleFactor: 1, grounded: false, facingFixed: false, mirrored: false });
     setFaceSetup({ mode: 'off', blendshapeMap: {}, faceMeshId: null });
+    _wizardOnModelLoaded();
   }, []);
 
   const loadSampleModel = useCallback(async (url, name) => {
@@ -66,6 +91,7 @@ export function useCharacterEngine() {
     const poseType = detectPoseType(charData.bones, rig);
     setPrepState({ poseType, scaleFactor: 1, grounded: false, facingFixed: false, mirrored: false });
     setFaceSetup({ mode: 'off', blendshapeMap: {}, faceMeshId: null });
+    _wizardOnModelLoaded();
   }, []);
 
   const removeCharacter = useCallback((id) => {
@@ -346,7 +372,7 @@ export function useCharacterEngine() {
 
   const exportForVtube = useCallback(async () => {
     const char = characters.find((c) => c.id === selectedCharId);
-    if (!char) return;
+    if (!char) return false;
     try {
       const buffer = await exportForVtubeUtil({ char, boneRig: boneMapping, faceSetup });
       const blob = new Blob([buffer], { type: 'application/octet-stream' });
@@ -358,10 +384,107 @@ export function useCharacterEngine() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+      return true;
     } catch (err) {
       alert(`Export failed: ${err.message}`);
+      return false;
     }
   }, [characters, selectedCharId, boneMapping, faceSetup]);
+
+  // ── Setup wizard actions ──────────────────────────────────────────────────
+  const wizardStartGuide = useCallback(() => setWizardStep(1), []);
+
+  const wizardDismiss = useCallback(() => {
+    setWizardStep(0);
+    setWizardDismissed(true);
+    try { sessionStorage.setItem('aicad-wizard-dismissed', '1'); } catch { /* ignore */ }
+  }, []);
+
+  const wizardReopen = useCallback(() => setWizardStep('welcome'), []);
+
+  const wizardGoToStep = useCallback((n) => setWizardStep(n), []);
+
+  const wizardSetLrChoice = useCallback((choice) => {
+    setWizardChecklist((c) => ({ ...c, lrChoice: choice }));
+  }, []);
+
+  const wizardSetChecklist = useCallback((patch) => {
+    setWizardChecklist((c) => ({ ...c, ...patch }));
+  }, []);
+
+  const wizardCheckPrep = useCallback((key) => {
+    setWizardChecklist((c) => ({ ...c, [key]: true }));
+  }, []);
+
+  const wizardOnExportSuccess = useCallback(() => {
+    setWizardStep((s) => (s === 4 ? 5 : s));
+  }, []);
+
+  // Auto-advance step 3 -> 4 once all four prep items are checked
+  useEffect(() => {
+    if (wizardStep !== 3) return;
+    const { prepTpose, prepScale, prepGround, prepFacing } = wizardChecklist;
+    if (prepTpose && prepScale && prepGround && prepFacing) setWizardStep(4);
+  }, [wizardStep, wizardChecklist]);
+
+  // Steps 3/4 need the normal-mode panels (prep tools, export) — the bone-rig
+  // editor (charPrepTool === 'mapbones') hides those, so back out of it.
+  useEffect(() => {
+    if ((wizardStep === 3 || wizardStep === 4) && charPrepTool === 'mapbones') {
+      setCharPrepTool(null);
+    }
+  }, [wizardStep]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // If the model is already T-posed (or pose detection couldn't run), the
+  // "Normalize to T-pose" button is disabled and can never be clicked — avoid
+  // deadlocking step 3's sequential checklist on it.
+  useEffect(() => {
+    if (wizardStep !== 3) return;
+    if ((prepState.poseType === 'tpose' || !prepState.poseType) && !wizardChecklist.prepTpose) {
+      setWizardChecklist((c) => ({ ...c, prepTpose: true }));
+    }
+  }, [wizardStep, prepState.poseType]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const wizardPrepOrder = ['prepTpose', 'prepScale', 'prepGround', 'prepFacing'];
+  const wizardPrepKeys = ['tpose-btn', 'autoscale-btn', 'ground-btn', 'facing-btn'];
+  const wizardHighlightKeys = (() => {
+    switch (wizardStep) {
+      case 1:
+        return charPrepTool === 'mapbones' ? ['bone-rig-list'] : ['edit-rig-btn'];
+      case 2:
+        return wizardChecklist.lrChoice === 'swapped' ? ['swap-lr-btn'] : ['bone-rig-panel'];
+      case 3: {
+        const idx = wizardPrepOrder.findIndex((k) => !wizardChecklist[k]);
+        return idx === -1 ? [] : [wizardPrepKeys[idx]];
+      }
+      case 4:
+        return ['export-btn'];
+      default:
+        return [];
+    }
+  })();
+  const wizardIsHighlighted = (key) => typeof wizardStep === 'number' && wizardStep > 0 && wizardHighlightKeys.includes(key);
+  const wizardPrepUnlockedIndex = (() => {
+    if (wizardStep !== 3) return wizardPrepKeys.length - 1; // no gating outside step 3
+    const idx = wizardPrepOrder.findIndex((k) => !wizardChecklist[k]);
+    return idx === -1 ? wizardPrepKeys.length - 1 : idx;
+  })();
+
+  const wizard = {
+    step: wizardStep,
+    checklist: wizardChecklist,
+    dismissed: wizardDismissed,
+    isHighlighted: wizardIsHighlighted,
+    prepUnlockedIndex: wizardPrepUnlockedIndex,
+    startGuide: wizardStartGuide,
+    dismiss: wizardDismiss,
+    reopen: wizardReopen,
+    goToStep: wizardGoToStep,
+    setLrChoice: wizardSetLrChoice,
+    setChecklist: wizardSetChecklist,
+    checkPrep: wizardCheckPrep,
+    onExportSuccess: wizardOnExportSuccess,
+  };
 
   const selectedChar = characters.find((c) => c.id === selectedCharId) || null;
   const selectedBone = selectedChar?.bones.find((b) => b.id === selectedBoneId) || null;
@@ -414,5 +537,6 @@ export function useCharacterEngine() {
     autoDetectBlendshapes,
     swapBoneSides,
     exportForVtube,
+    wizard,
   };
 }
