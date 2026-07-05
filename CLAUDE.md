@@ -68,7 +68,7 @@ without anyone needing to remember to run a sync separately. See
 
 <!-- wiki-chain
 id: ai-cad-claude
-status: Exporter pipeline stable (rotation-shatter fixed). Swap L/R relabels joints; new "Mirror rig + mesh" button (mirror.js) physically mirrors geometry+skeleton across world X=0 (proper-rotation quaternion reflection, no negative-scale node) then calls swapBoneSides to match. Finger bones now export explicit lmHand/lmPair (buildBoneRig), flipped correctly by both Swap L/R and Mirror. Verified headlessly (isometry, winding, double-mirror round-trip) and live in browser (real export + userData.vtubeRig inspection).
+status: Exporter pipeline stable (rotation-shatter fixed). Swap L/R relabels joints; "Mirror rig + mesh" button (mirror.js) physically mirrors geometry+skeleton across world X=0 (proper-rotation quaternion reflection, no negative-scale node) then calls swapBoneSides to match. Finger bones export explicit lmHand/lmPair (buildBoneRig), flipped correctly by both Swap L/R and Mirror. New guided setup wizard (CharacterWizard.jsx) walks bone review -> L/R check -> gated prep tools -> export, with element highlighting and a welcome/skip card gated on sessionStorage. Verified headlessly (isometry, winding, double-mirror round-trip) and live in browser end-to-end (welcome through dismiss/reopen, real export + userData.vtubeRig inspection).
 updated: 2026-07-05
-links: [ai-cad-overview, vtube-claude, vtuberig-contract, exporter-pipeline, bone-detection, scale-ground-fix, shatter-bug, mirror-rig]
+links: [ai-cad-overview, vtube-claude, vtuberig-contract, exporter-pipeline, bone-detection, scale-ground-fix, shatter-bug, mirror-rig, setup-wizard]
 -->
