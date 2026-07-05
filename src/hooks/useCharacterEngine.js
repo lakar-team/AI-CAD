@@ -5,6 +5,7 @@ import { ARKIT_BLENDSHAPES } from '../character/mixamoSpec.js';
 import {
   buildBoneRig, detectPoseType, makeArmHorizontal,
   processGltf, distPointToRay, computeRestDirLength, flipJointSide,
+  detectFacingYawOffset,
 } from '../character/boneDetection.js';
 import { exportForVtube as exportForVtubeUtil } from '../character/exporter.js';
 import { mirrorCharacterX } from '../character/mirror.js';
@@ -44,6 +45,20 @@ export function useCharacterEngine() {
     setSelectedBoneIds(new Set());
   };
 
+  const FACING_THRESHOLD_DEG = 45;
+
+  // Auto-detects and corrects facing from the shoulder line so no model ever
+  // needs a manual "Fix facing" click just to be usable. Returns whether a
+  // correction was actually applied (small deviations are left alone).
+  const _autoFixFacing = (charData, rig) => {
+    const yawOffset = detectFacingYawOffset(charData.bones, rig);
+    if (yawOffset === null) return false;
+    if (Math.abs(THREE.MathUtils.radToDeg(yawOffset)) <= FACING_THRESHOLD_DEG) return false;
+    charData.scene.rotation.y -= yawOffset;
+    charData.scene.updateMatrixWorld(true);
+    return true;
+  };
+
   const _wizardOnModelLoaded = () => {
     if (wizardDismissedRef.current) return;
     setWizardStep('welcome');
@@ -66,13 +81,14 @@ export function useCharacterEngine() {
     const charData = processGltf(gltf, file.name);
     const box = new THREE.Box3().setFromObject(charData.scene);
     charData.baseHeight = Math.max(box.max.y - box.min.y, 0.01);
+    const rig = buildBoneRig(charData.bones);
+    const facingFixed = _autoFixFacing(charData, rig);
     setCharacters([charData]);
     setSelectedCharId(charData.id);
     _clearBoneSelection();
-    const rig = buildBoneRig(charData.bones);
     setBoneMapping(rig);
     const poseType = detectPoseType(charData.bones, rig);
-    setPrepState({ poseType, scaleFactor: 1, grounded: false, facingFixed: false, mirrored: false });
+    setPrepState({ poseType, scaleFactor: 1, grounded: false, facingFixed, mirrored: false });
     setFaceSetup({ mode: 'off', blendshapeMap: {}, faceMeshId: null });
     _wizardOnModelLoaded();
   }, []);
@@ -83,13 +99,14 @@ export function useCharacterEngine() {
     const charData = processGltf(gltf, name);
     const box = new THREE.Box3().setFromObject(charData.scene);
     charData.baseHeight = Math.max(box.max.y - box.min.y, 0.01);
+    const rig = buildBoneRig(charData.bones);
+    const facingFixed = _autoFixFacing(charData, rig);
     setCharacters([charData]);
     setSelectedCharId(charData.id);
     _clearBoneSelection();
-    const rig = buildBoneRig(charData.bones);
     setBoneMapping(rig);
     const poseType = detectPoseType(charData.bones, rig);
-    setPrepState({ poseType, scaleFactor: 1, grounded: false, facingFixed: false, mirrored: false });
+    setPrepState({ poseType, scaleFactor: 1, grounded: false, facingFixed, mirrored: false });
     setFaceSetup({ mode: 'off', blendshapeMap: {}, faceMeshId: null });
     _wizardOnModelLoaded();
   }, []);

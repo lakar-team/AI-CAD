@@ -196,6 +196,39 @@ export function makeArmHorizontal(armBoneData, xSign) {
   arm.updateMatrixWorld(true);
 }
 
+/**
+ * Detects how far off +Z (camera-facing) a character currently is, using the
+ * shoulder line as a facing reference: forward = (shR - shL) x worldUp. Works
+ * for any successfully auto-detected rig (Mixamo-named or not) since it reads
+ * bones via their resolved jointFrom role in boneRig, not by literal name.
+ * Returns the yaw offset in radians (positive = rotated toward +X), or null
+ * if both shoulder bones couldn't be resolved.
+ */
+export function detectFacingYawOffset(bones, boneRig) {
+  const findByJointFrom = (joint) => {
+    for (const bone of bones) {
+      if (boneRig[bone.name]?.jointFrom === joint) return bone.object;
+    }
+    return null;
+  };
+  const shLBone = findByJointFrom('shL');
+  const shRBone = findByJointFrom('shR');
+  if (!shLBone || !shRBone) return null;
+
+  const shL = new THREE.Vector3();
+  const shR = new THREE.Vector3();
+  shLBone.getWorldPosition(shL);
+  shRBone.getWorldPosition(shR);
+  const shoulderAxis = shR.clone().sub(shL);
+  if (shoulderAxis.lengthSq() < 1e-8) return null;
+
+  const forward = shoulderAxis.cross(new THREE.Vector3(0, 1, 0));
+  if (forward.lengthSq() < 1e-8) return null;
+  forward.normalize();
+
+  return Math.atan2(forward.x, forward.z);
+}
+
 export function distPointToRay(origin, dir, pt) {
   const ox = pt[0] - origin[0], oy = pt[1] - origin[1], oz = pt[2] - origin[2];
   const dot = ox * dir[0] + oy * dir[1] + oz * dir[2];
@@ -222,6 +255,23 @@ export function enrichBones(rawBones) {
   });
 }
 
+// Joint names a bone's jointFrom/jointTo is actually allowed to reference —
+// must exactly match the position keys vtube's GlbBoneDriver.ts FKPositions
+// exposes at runtime (src/render/GlbBoneDriver.ts, FKPositions interface).
+// NOT the same set as worldFrame.ts's CanonicalPose: that type additionally
+// has noseC/earL/earR, but those never made it into FKPositions, so a joint
+// pair referencing them silently never resolves (see [[vtuberig-contract]]
+// note on this — the two lists drifted apart once before, on mixamorigNeck/
+// mixamorigHead, and caused the exact "driven but does nothing" bug this
+// validation exists to catch).
+const VALID_FK_JOINTS = new Set([
+  'hipMid', 'shMid', 'headC',
+  'shL', 'shR', 'hipL', 'hipR',
+  'elL', 'elR', 'wrL', 'wrR',
+  'knL', 'knR', 'anL', 'anR',
+  'toeL', 'toeR',
+]);
+
 const MIXAMO_TO_MEDIAPIPE = {
   // Root — position is handled by grounding, not direction-driving. A joint
   // pair here would fight the grounding logic, so it's intentionally locked.
@@ -229,8 +279,11 @@ const MIXAMO_TO_MEDIAPIPE = {
   mixamorigSpine:         { jointFrom: 'hipMid', jointTo: 'shMid' },
   mixamorigSpine1:        { jointFrom: 'hipMid', jointTo: 'shMid' },
   mixamorigSpine2:        { jointFrom: 'hipMid', jointTo: 'shMid' },
-  mixamorigNeck:          { jointFrom: 'shMid',  jointTo: 'noseC' },
-  mixamorigHead:          { jointFrom: 'noseC',  jointTo: 'headC' },
+  mixamorigNeck:          { jointFrom: 'shMid',  jointTo: 'headC' },
+  // Head has nothing beyond headC in FKPositions to point at (no noseC there,
+  // unlike worldFrame.ts's CanonicalPose) — locked. Neck driving the shMid->
+  // headC direction already carries the head along through the hierarchy.
+  mixamorigHead:          { jointFrom: null,     jointTo: null },
   mixamorigLeftShoulder:  { jointFrom: 'shMid',  jointTo: 'shL' },
   mixamorigLeftArm:       { jointFrom: 'shL',    jointTo: 'elL' },
   mixamorigLeftForeArm:   { jointFrom: 'elL',    jointTo: 'wrL' },
@@ -294,6 +347,10 @@ export function computeRestDirLength(boneObj) {
   return { restDir: [localDir.x, localDir.y, localDir.z], length };
 }
 
+function isValidJointPair(jointFrom, jointTo) {
+  return !!jointFrom && !!jointTo && VALID_FK_JOINTS.has(jointFrom) && VALID_FK_JOINTS.has(jointTo);
+}
+
 export function buildBoneRig(bones) {
   const detected = autoDetectMapping(bones);
   const sourceToMixamo = {};
@@ -308,16 +365,25 @@ export function buildBoneRig(bones) {
     if (mixamoName) {
       const mp = MIXAMO_TO_MEDIAPIPE[mixamoName] || { jointFrom: null, jointTo: null };
       const hand = handLmFields(mixamoName);
-      if (!mp.jointFrom && !mp.jointTo && !hand) {
-        // No usable joint pair AND no hand-landmark pair (skeleton root, or a
-        // bone intentionally left undriven) — a "driven" bone with nothing to
-        // point at silently does nothing at all, which is worse than just
-        // locking it to its parent. Finger/palm bones are driven via lmHand/
-        // lmPair instead of jointFrom/jointTo, so they're exempt here.
+      const validPair = isValidJointPair(mp.jointFrom, mp.jointTo);
+      if (!validPair && !hand) {
+        // No usable joint pair (skeleton root, a bone intentionally left
+        // undriven, or a joint name that isn't actually in vtube's
+        // FKPositions — see VALID_FK_JOINTS above) AND no hand-landmark pair.
+        // A "driven" bone with nothing to point at silently does nothing at
+        // all, which is worse than just locking it to its parent. Finger/palm
+        // bones are driven via lmHand/lmPair instead of jointFrom/jointTo, so
+        // they're exempt here.
         boneRig[bone.name] = { role: 'locked' };
       } else {
         const { restDir, length } = computeRestDirLength(bone.object);
-        const entry = { role: 'driven', jointFrom: mp.jointFrom, jointTo: mp.jointTo, restDir, length };
+        const entry = {
+          role: 'driven',
+          jointFrom: validPair ? mp.jointFrom : null,
+          jointTo: validPair ? mp.jointTo : null,
+          restDir,
+          length,
+        };
         if (hand) Object.assign(entry, hand);
         boneRig[bone.name] = entry;
       }
