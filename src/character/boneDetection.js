@@ -223,12 +223,14 @@ export function enrichBones(rawBones) {
 }
 
 const MIXAMO_TO_MEDIAPIPE = {
-  mixamorigHips:          { jointFrom: 'hipMid', jointTo: null },
-  mixamorigSpine:         { jointFrom: 'hipMid', jointTo: null },
+  // Root — position is handled by grounding, not direction-driving. A joint
+  // pair here would fight the grounding logic, so it's intentionally locked.
+  mixamorigHips:          { jointFrom: null,    jointTo: null },
+  mixamorigSpine:         { jointFrom: 'hipMid', jointTo: 'shMid' },
   mixamorigSpine1:        { jointFrom: 'hipMid', jointTo: 'shMid' },
   mixamorigSpine2:        { jointFrom: 'hipMid', jointTo: 'shMid' },
-  mixamorigNeck:          { jointFrom: 'shMid',  jointTo: 'headC' },
-  mixamorigHead:          { jointFrom: 'headC',  jointTo: null },
+  mixamorigNeck:          { jointFrom: 'shMid',  jointTo: 'noseC' },
+  mixamorigHead:          { jointFrom: 'noseC',  jointTo: 'headC' },
   mixamorigLeftShoulder:  { jointFrom: 'shMid',  jointTo: 'shL' },
   mixamorigLeftArm:       { jointFrom: 'shL',    jointTo: 'elL' },
   mixamorigLeftForeArm:   { jointFrom: 'elL',    jointTo: 'wrL' },
@@ -240,11 +242,12 @@ const MIXAMO_TO_MEDIAPIPE = {
   mixamorigLeftUpLeg:     { jointFrom: 'hipMid', jointTo: 'knL' },
   mixamorigLeftLeg:       { jointFrom: 'knL',    jointTo: 'anL' },
   mixamorigLeftFoot:      { jointFrom: 'anL',    jointTo: 'toeL' },
-  mixamorigLeftToeBase:   { jointFrom: 'toeL',   jointTo: null },
+  // Toe bones: unreliable mocap data at normal camera distances — locked.
+  mixamorigLeftToeBase:   { jointFrom: null,    jointTo: null },
   mixamorigRightUpLeg:    { jointFrom: 'hipMid', jointTo: 'knR' },
   mixamorigRightLeg:      { jointFrom: 'knR',    jointTo: 'anR' },
   mixamorigRightFoot:     { jointFrom: 'anR',    jointTo: 'toeR' },
-  mixamorigRightToeBase:  { jointFrom: 'toeR',   jointTo: null },
+  mixamorigRightToeBase:  { jointFrom: null,    jointTo: null },
 };
 
 export function flipJointSide(joint) {
@@ -304,11 +307,20 @@ export function buildBoneRig(bones) {
     const mixamoName = sourceToMixamo[bone.name];
     if (mixamoName) {
       const mp = MIXAMO_TO_MEDIAPIPE[mixamoName] || { jointFrom: null, jointTo: null };
-      const { restDir, length } = computeRestDirLength(bone.object);
-      const entry = { role: 'driven', jointFrom: mp.jointFrom, jointTo: mp.jointTo, restDir, length };
       const hand = handLmFields(mixamoName);
-      if (hand) Object.assign(entry, hand);
-      boneRig[bone.name] = entry;
+      if (!mp.jointFrom && !mp.jointTo && !hand) {
+        // No usable joint pair AND no hand-landmark pair (skeleton root, or a
+        // bone intentionally left undriven) — a "driven" bone with nothing to
+        // point at silently does nothing at all, which is worse than just
+        // locking it to its parent. Finger/palm bones are driven via lmHand/
+        // lmPair instead of jointFrom/jointTo, so they're exempt here.
+        boneRig[bone.name] = { role: 'locked' };
+      } else {
+        const { restDir, length } = computeRestDirLength(bone.object);
+        const entry = { role: 'driven', jointFrom: mp.jointFrom, jointTo: mp.jointTo, restDir, length };
+        if (hand) Object.assign(entry, hand);
+        boneRig[bone.name] = entry;
+      }
     } else {
       boneRig[bone.name] = { role: 'locked' };
     }
